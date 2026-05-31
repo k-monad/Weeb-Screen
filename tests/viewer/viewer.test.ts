@@ -84,6 +84,45 @@ describe("viewer UI and progress semantics", () => {
     }
   });
 
+  it("uses live controls for watched updates, filters, and hide filler", async () => {
+    const { db, cleanup } = createTempDatabase();
+    const app = await buildServer(db);
+    try {
+      seedDemoShow(db);
+
+      const page = await app.inject({ method: "GET", url: "/shows/demo-anime" });
+      expect(page.body).toContain("data-watch-form");
+      expect(page.body).toContain("data-filter-form");
+      expect(page.body).toContain("Hide filler");
+
+      const watch = await app.inject({
+        method: "POST",
+        url: "/shows/demo-anime/episodes/1/watched",
+        headers: { "content-type": "application/x-www-form-urlencoded", accept: "application/json" },
+        payload: "watched=true",
+      });
+      expect(watch.headers["content-type"]).toContain("application/json");
+      expect(JSON.parse(watch.body)).toEqual({ ok: true, watched: true });
+
+      const hide = await app.inject({
+        method: "POST",
+        url: "/shows/demo-anime/preferences",
+        headers: { "content-type": "application/x-www-form-urlencoded", accept: "application/json" },
+        payload: "skip_filler=true",
+      });
+      expect(hide.statusCode).toBe(200);
+      expect(JSON.parse(hide.body)).toEqual({ ok: true });
+
+      const hidden = await app.inject({ method: "GET", url: "/shows/demo-anime" });
+      expect(hidden.body).toContain("Filler hidden");
+      expect(hidden.body).not.toContain("Filler Beach");
+      expect(extractRealOrder(hidden.body)).toEqual([1, 3, 5]);
+    } finally {
+      await app.close();
+      cleanup();
+    }
+  });
+
   it("persists progress across database reopen", () => {
     const temp = createTempDatabase();
     try {

@@ -112,6 +112,11 @@ export async function buildServer(db: WeebScreenDatabase, options: ServerOptions
       setShowPreference(db, params.slug, "season_details", body.season_details === "true");
     }
 
+    if (wantsJson(request)) {
+      reply.send({ ok: true });
+      return;
+    }
+
     reply.type("text/html").send(redirectPage(`/shows/${params.slug}`));
   });
 
@@ -239,6 +244,10 @@ function parseWatched(body: FormBody | { watched?: boolean }): boolean {
     return body.watched;
   }
   return body.watched === "true" || body.watched === "1" || body.watched === "on";
+}
+
+function wantsJson(request: FastifyRequest): boolean {
+  return String(request.headers.accept ?? "").includes("application/json");
 }
 
 function authorizeAdmin(

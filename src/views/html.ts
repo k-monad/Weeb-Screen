@@ -21,11 +21,11 @@ export function showPage(detail: ShowDetail, next: NextEpisodeResult, options: S
 
   return layout(
     detail.show.title,
-    `<main class="show-shell">
+    `<main class="show-shell" data-show-slug="${escapeAttribute(detail.show.slug)}">
       <header class="show-header">
         <a href="/" class="back-link">Library</a>
         <h1>${escapeHtml(detail.show.title)}</h1>
-        <p>${detail.summary.canonWatched} / ${detail.summary.canonTotal} canon watched · ${detail.summary.allWatched} / ${detail.summary.allTotal} all watched</p>
+        <p>${detail.summary.canonWatched} / ${detail.summary.canonTotal} canon watched &middot; ${detail.summary.allWatched} / ${detail.summary.allTotal} all watched</p>
       </header>
       ${nextCard(detail.show.slug, next, detail.preferences.seasonDetails)}
       ${controls(detail, options)}
@@ -52,6 +52,7 @@ function layout(title: string, body: string): string {
   <style>${css()}</style>
 </head>
 <body>${body}</body>
+<script>${clientScript()}</script>
 </html>`;
 }
 
@@ -86,7 +87,7 @@ function nextCard(slug: string, next: NextEpisodeResult, showCode: boolean): str
 
   const message =
     next.reason === "only-filler-remaining"
-      ? `No more canon — ${next.fillerRemaining} filler episodes remain. Show them?`
+      ? `No more canon - ${next.fillerRemaining} filler episodes remain. Show them?`
       : next.reason === "all-canon-watched"
         ? "All canon watched"
         : "All caught up";
@@ -97,7 +98,7 @@ function nextCard(slug: string, next: NextEpisodeResult, showCode: boolean): str
 function controls(detail: ShowDetail, options: ShowPageOptions): string {
   const filterAction = `/shows/${escapeAttribute(detail.show.slug)}`;
   return `<section class="controls">
-    <form method="get" action="${filterAction}" class="control-form">
+    <form method="get" action="${filterAction}" class="control-form" data-filter-form>
       <label>Filter
         <select name="bucket">
           ${selectOption("All", "All", options.bucket)}
@@ -107,13 +108,13 @@ function controls(detail: ShowDetail, options: ShowPageOptions): string {
         </select>
       </label>
       <label class="check"><input type="checkbox" name="unwatched" value="1"${options.unwatched ? " checked" : ""}> Unwatched</label>
-      <button type="submit">Apply</button>
+      <button type="submit" class="apply-button">Apply</button>
     </form>
-    <form method="post" action="/shows/${escapeAttribute(detail.show.slug)}/preferences" class="toggle-row">
+    <form method="post" action="/shows/${escapeAttribute(detail.show.slug)}/preferences" class="toggle-row" data-preference-form>
       <input type="hidden" name="skip_filler" value="${detail.preferences.skipFiller ? "false" : "true"}">
-      <button type="submit">${detail.preferences.skipFiller ? "Skip filler on" : "Skip filler off"}</button>
+      <button type="submit" aria-pressed="${detail.preferences.skipFiller ? "true" : "false"}">${detail.preferences.skipFiller ? "Filler hidden" : "Hide filler"}</button>
     </form>
-    <form method="post" action="/shows/${escapeAttribute(detail.show.slug)}/preferences" class="toggle-row">
+    <form method="post" action="/shows/${escapeAttribute(detail.show.slug)}/preferences" class="toggle-row" data-preference-form>
       <input type="hidden" name="season_details" value="${detail.preferences.seasonDetails ? "false" : "true"}">
       <button type="submit">Season details ${detail.preferences.seasonDetails ? "on" : "off"}</button>
     </form>
@@ -146,9 +147,9 @@ function episodeRow(showSlug: string, episode: EpisodeWithProgress, showCode: bo
     <span class="${badgeClass(episode.fillerBucket)}">${bucketLabel(episode.fillerBucket)}</span>
     <div class="episode-main">
       <h3>${showCode ? `<span class="service-code">${escapeHtml(episode.serviceEpisodeCode)}</span> ` : ""}${escapeHtml(episode.episodeTitle)}</h3>
-      <p>Episode ${episode.realEpisodeNumber}${episode.originalAirdate ? ` · ${escapeHtml(episode.originalAirdate)}` : ""}</p>
+      <p>Episode ${episode.realEpisodeNumber}${episode.originalAirdate ? ` &middot; ${escapeHtml(episode.originalAirdate)}` : ""}</p>
     </div>
-    <form method="post" action="/shows/${escapeAttribute(showSlug)}/episodes/${episode.realEpisodeNumber}/watched">
+    <form method="post" action="/shows/${escapeAttribute(showSlug)}/episodes/${episode.realEpisodeNumber}/watched" data-watch-form>
       <input type="hidden" name="watched" value="${episode.watched ? "false" : "true"}">
       <button type="submit">${episode.watched ? "Watched" : "Mark watched"}</button>
     </form>
@@ -206,6 +207,7 @@ button, select { font: inherit; }
 .control-form { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
 .check { display: inline-flex; gap: 6px; align-items: center; }
 .toggle-row { margin: 0; }
+.apply-button { display: none; }
 button, select, .button { border: 1px solid #aeb7af; background: #f8faf7; border-radius: 6px; padding: 8px 10px; text-decoration: none; }
 .episode-list { display: grid; gap: 8px; }
 .episode-row { display: grid; grid-template-columns: 82px 1fr auto; align-items: center; gap: 12px; padding: 12px; }
@@ -228,5 +230,87 @@ button, select, .button { border: 1px solid #aeb7af; background: #f8faf7; border
   .controls, .control-form { display: grid; width: 100%; }
   button, select { width: 100%; }
 }
+`;
+}
+
+function clientScript(): string {
+  return `
+(() => {
+  const shellSelector = ".show-shell";
+
+  function currentShell() {
+    return document.querySelector(shellSelector);
+  }
+
+  async function refreshShow(url = window.location.href, push = false) {
+    const shell = currentShell();
+    if (!shell) return;
+
+    const response = await fetch(url, { headers: { "X-Requested-With": "fetch" } });
+    if (!response.ok) throw new Error("Refresh failed");
+
+    const text = await response.text();
+    const doc = new DOMParser().parseFromString(text, "text/html");
+    const nextShell = doc.querySelector(shellSelector);
+    if (!nextShell) throw new Error("Show content missing");
+
+    shell.replaceWith(nextShell);
+    if (push) window.history.pushState({}, "", url);
+    bindShowControls();
+  }
+
+  function filterUrl(form) {
+    const url = new URL(form.action, window.location.origin);
+    const data = new FormData(form);
+    const bucket = String(data.get("bucket") || "All");
+    if (bucket !== "All") url.searchParams.set("bucket", bucket);
+    if (data.get("unwatched") === "1") url.searchParams.set("unwatched", "1");
+    return url;
+  }
+
+  function bindShowControls() {
+    document.querySelectorAll("[data-watch-form]").forEach((form) => {
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        await fetch(form.action, {
+          method: "POST",
+          body: new URLSearchParams(new FormData(form)),
+          headers: { Accept: "application/json" },
+        });
+        await refreshShow();
+      });
+    });
+
+    document.querySelectorAll("[data-preference-form]").forEach((form) => {
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        await fetch(form.action, {
+          method: "POST",
+          body: new URLSearchParams(new FormData(form)),
+          headers: { Accept: "application/json" },
+        });
+        await refreshShow();
+      });
+    });
+
+    document.querySelectorAll("[data-filter-form]").forEach((form) => {
+      const applyFilter = async () => refreshShow(filterUrl(form).toString(), true);
+      form.addEventListener("submit", (event) => {
+        event.preventDefault();
+        void applyFilter();
+      });
+      form.querySelectorAll("select, input").forEach((input) => {
+        input.addEventListener("change", () => void applyFilter());
+      });
+    });
+  }
+
+  if (!window.__weebScreenBound) {
+    window.__weebScreenBound = true;
+    window.addEventListener("popstate", () => void refreshShow(window.location.href));
+  }
+
+  bindShowControls();
+})();
 `;
 }
