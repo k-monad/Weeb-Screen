@@ -15,7 +15,9 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "better-sqlite3": "^12.4.1"
+    "better-sqlite3": "^12.4.1",
+    "csv-parse": "^6.2.1",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",
@@ -28,4 +30,3 @@
     "vitest": "^4.0.14"
   }
 }
-
