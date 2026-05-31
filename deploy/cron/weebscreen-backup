@@ -1,0 +1,29 @@
+#!/bin/sh
+set -eu
+
+APP_DIR="${APP_DIR:-/opt/weeb-screen}"
+BACKUP_ROOT="${BACKUP_ROOT:-/mnt/personal/weebscreen-backup}"
+STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
+DEST="${BACKUP_ROOT}/${STAMP}"
+DB_DEST="${DEST}/weebscreen.sqlite"
+DATA_DEST="${DEST}/weebscreen-data.tar.gz"
+ALERT_TO="${ALERT_TO:-root}"
+
+alert_failure() {
+  printf 'Subject: [weeb-screen] backup failed\n\nBackup failed on %s at %s UTC.\n' "$(hostname)" "$(date -u)" | msmtp "$ALERT_TO" || true
+}
+
+trap alert_failure ERR
+
+mkdir -p "$DEST"
+cd "$APP_DIR"
+
+sudo docker compose exec -T app node -e "const Database=require('better-sqlite3'); (async()=>{const db=new Database('/data/weebscreen.sqlite',{readonly:true}); await db.backup('/tmp/weebscreen-backup.sqlite'); db.close();})().catch((error)=>{console.error(error); process.exit(1);});"
+sudo docker compose cp app:/tmp/weebscreen-backup.sqlite "$DB_DEST"
+sudo docker compose exec -T app rm -f /tmp/weebscreen-backup.sqlite
+
+VOLUME_NAME="$(sudo docker volume ls --format '{{.Name}}' | grep '_weebscreen-data$' | head -n 1)"
+sudo docker run --rm -v "${VOLUME_NAME}:/source:ro" -v "${DEST}:/backup" alpine:3.22 tar -czf /backup/weebscreen-data.tar.gz -C /source .
+
+test -s "$DB_DEST"
+test -s "$DATA_DEST"

@@ -1,0 +1,5 @@
+weeb-screen.egret-chimaera.ts.net {
+	tls /etc/weebscreen/tls/weeb-screen.egret-chimaera.ts.net.crt /etc/weebscreen/tls/weeb-screen.egret-chimaera.ts.net.key
+	reverse_proxy app:8787
+}
+

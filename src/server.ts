@@ -44,6 +44,8 @@ export async function buildServer(db: WeebScreenDatabase, options: ServerOptions
     },
   });
 
+  app.get("/healthz", async () => ({ ok: true }));
+
   app.get("/", async (_request, reply) => {
     reply.type("text/html").send(libraryPage(listShows(db)));
   });

@@ -1,0 +1,41 @@
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    environment:
+      HOST: 0.0.0.0
+      PORT: 8787
+      WEEBSCREEN_DB_PATH: /data/weebscreen.sqlite
+      WEEBSCREEN_ADMIN_TOKEN: ${WEEBSCREEN_ADMIN_TOKEN}
+    ports:
+      - "127.0.0.1:8787:8787"
+    volumes:
+      - weebscreen-db:/data
+      - weebscreen-data:/uploads
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8787/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  caddy:
+    image: caddy:2.10-alpine
+    restart: unless-stopped
+    depends_on:
+      app:
+        condition: service_healthy
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - /etc/weebscreen/tls:/etc/weebscreen/tls:ro
+      - caddy-data:/data
+      - caddy-config:/config
+
+volumes:
+  weebscreen-db:
+  weebscreen-data:
+  caddy-data:
+  caddy-config:
+

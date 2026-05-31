@@ -11,6 +11,7 @@
     "build": "tsc -p tsconfig.build.json",
     "db:init": "tsx scripts/db-init.ts",
     "lint": "eslint .",
+    "start": "node dist/src/main.js",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
