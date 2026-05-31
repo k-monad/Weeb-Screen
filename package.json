@@ -15,8 +15,10 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@fastify/formbody": "^8.0.2",
     "better-sqlite3": "^12.4.1",
     "csv-parse": "^6.2.1",
+    "fastify": "^5.8.5",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
