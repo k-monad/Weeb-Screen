@@ -4,9 +4,11 @@ import multipart from "@fastify/multipart";
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from "fastify";
 
 import type { FillerBucket } from "./domain/types.js";
-import { clearImportPreview, getImportPreview, storeImportPreview } from "./admin/importSessions.js";
 import {
+  countMissingEpisodesForImport,
   createPreviewImportJob,
+  getImportPreviewFromJob,
+  getSettingsSnapshot,
   listImportJobs,
   markImportJobCommitted,
   markImportJobFailed,
@@ -15,6 +17,7 @@ import {
   listShows,
   setEpisodeWatched,
   setSeasonWatched,
+  setSetting,
   setShowPreference,
   setWatchedUpTo,
   upsertShowImport,
@@ -25,6 +28,7 @@ import { adminPage, importLogPage, importPreviewPage } from "./views/admin.js";
 import { libraryPage, notFoundPage, redirectPage, showPage } from "./views/html.js";
 
 type FormBody = Record<string, string | undefined>;
+type SettingsBody = Record<string, string | boolean | undefined>;
 
 export type ServerOptions = {
   adminToken?: string | null;
@@ -120,6 +124,52 @@ export async function buildServer(db: WeebScreenDatabase, options: ServerOptions
     reply.type("text/html").send(redirectPage(`/shows/${params.slug}`));
   });
 
+  app.get("/settings", async (_request, reply) => {
+    reply.send(getSettingsSnapshot(db));
+  });
+
+  app.post("/settings", async (request, reply) => {
+    if (!authorizeAdmin(request, reply, adminToken)) {
+      return;
+    }
+
+    const body = request.body as SettingsBody;
+    const skipFillerDefault = parseBooleanValue(body.skip_filler_default);
+    const seasonDetailsDefault = parseBooleanValue(body.season_details_default);
+    const progressViewRaw = toOptionalText(body.progress_view_default);
+    const showSlug = toOptionalText(body.show_slug);
+    const showSkipFiller = parseBooleanValue(body.skip_filler);
+    const showSeasonDetails = parseBooleanValue(body.season_details);
+
+    if (skipFillerDefault !== null) {
+      setSetting(db, "skip_filler_default", String(skipFillerDefault));
+    }
+
+    if (seasonDetailsDefault !== null) {
+      setSetting(db, "season_details_default", String(seasonDetailsDefault));
+    }
+
+    if (progressViewRaw !== null) {
+      if (progressViewRaw !== "canon" && progressViewRaw !== "all") {
+        reply.code(400).send({ error: "invalid_progress_view_default" });
+        return;
+      }
+      setSetting(db, "progress_view_default", progressViewRaw);
+    }
+
+    if (showSlug !== null) {
+      if (showSkipFiller !== null) {
+        setShowPreference(db, showSlug, "skip_filler", showSkipFiller);
+      }
+
+      if (showSeasonDetails !== null) {
+        setShowPreference(db, showSlug, "season_details", showSeasonDetails);
+      }
+    }
+
+    reply.send(getSettingsSnapshot(db));
+  });
+
   app.post("/shows/:slug/episodes/:realNum/watched", async (request, reply) => {
     const params = request.params as { slug: string; realNum: string };
     const body = request.body as FormBody | { watched?: boolean };
@@ -178,6 +228,11 @@ export async function buildServer(db: WeebScreenDatabase, options: ServerOptions
     }
 
     const preview = parseUploadedImport(upload.file, upload.filename, metadata);
+    const missingEpisodes = countMissingEpisodesForImport(
+      db,
+      preview.show.slug,
+      preview.episodes.map((episode) => episode.realEpisodeNumber),
+    );
 
     if (preview.episodes.length > 5000) {
       preview.issues.push({
@@ -186,8 +241,17 @@ export async function buildServer(db: WeebScreenDatabase, options: ServerOptions
       });
     }
 
+    if (missingEpisodes !== null) {
+      preview.issues.push({
+        level: "warning",
+        message:
+          missingEpisodes > 0
+            ? `Re-import will update an existing show. ${missingEpisodes} episodes already in DB are not present in this file and will be skipped.`
+            : "Re-import will update an existing show in place. No episodes are missing from this file.",
+      });
+    }
+
     const job = createPreviewImportJob(db, preview, upload.filename);
-    storeImportPreview(job.id, preview);
     reply.type("text/html").send(importPreviewPage(job.id, preview, listImportJobs(db)));
   });
 
@@ -198,7 +262,7 @@ export async function buildServer(db: WeebScreenDatabase, options: ServerOptions
 
     const body = request.body as FormBody;
     const jobId = Number.parseInt(body.job_id ?? "", 10);
-    const preview = Number.isInteger(jobId) ? getImportPreview(jobId) : null;
+    const preview = Number.isInteger(jobId) ? getImportPreviewFromJob(db, jobId) : null;
 
     if (!preview) {
       reply.code(410).type("text/html").send(adminPage(listImportJobs(db), "Preview expired or missing. Re-run preview."));
@@ -214,8 +278,7 @@ export async function buildServer(db: WeebScreenDatabase, options: ServerOptions
 
     try {
       const result = upsertShowImport(db, preview);
-      markImportJobCommitted(db, jobId, result.showId, result.inserted, result.updated);
-      clearImportPreview(jobId);
+      markImportJobCommitted(db, jobId, result.showId, result.inserted, result.updated, result.skipped);
       reply.type("text/html").send(adminPage(listImportJobs(db), "Import committed."));
     } catch (error) {
       const message = error instanceof Error ? error.message : "Import commit failed.";
@@ -246,6 +309,33 @@ function parseWatched(body: FormBody | { watched?: boolean }): boolean {
   return body.watched === "true" || body.watched === "1" || body.watched === "on";
 }
 
+function parseBooleanValue(value: string | boolean | undefined): boolean | null {
+  if (typeof value === "boolean") {
+    return value;
+  }
+
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (normalized === "true" || normalized === "1" || normalized === "on") {
+      return true;
+    }
+    if (normalized === "false" || normalized === "0" || normalized === "off") {
+      return false;
+    }
+  }
+
+  return null;
+}
+
+function toOptionalText(value: string | boolean | undefined): string | null {
+  if (typeof value === "boolean" || value === undefined) {
+    return null;
+  }
+
+  const text = value.trim();
+  return text.length > 0 ? text : null;
+}
+
 function wantsJson(request: FastifyRequest): boolean {
   return String(request.headers.accept ?? "").includes("application/json");
 }
@@ -264,20 +354,11 @@ function authorizeAdmin(
   const provided = Array.isArray(headerToken) ? headerToken[0] : headerToken;
   const cookieToken = (request as FastifyRequest & { cookies: Record<string, string | undefined> }).cookies
     .weebscreen_admin_token;
-  const query = request.query as { token?: string };
-  const token = provided ?? cookieToken ?? query.token;
+  const token = provided ?? cookieToken;
 
   if (token !== adminToken) {
     reply.code(403).send({ error: "forbidden" });
     return false;
-  }
-
-  if (query.token === adminToken) {
-    (reply as FastifyReply & { setCookie: (name: string, value: string, options: Record<string, unknown>) => FastifyReply }).setCookie("weebscreen_admin_token", adminToken, {
-      httpOnly: true,
-      sameSite: "strict",
-      path: "/admin",
-    });
   }
 
   return true;

@@ -36,6 +36,19 @@ export type ImportJob = {
   finishedAt: string | null;
 };
 
+export type SettingsSnapshot = {
+  defaults: {
+    skipFiller: boolean;
+    progressView: "canon" | "all";
+    seasonDetails: boolean;
+  };
+  showOverrides: Array<{
+    showSlug: string;
+    skipFiller: boolean | null;
+    seasonDetails: boolean | null;
+  }>;
+};
+
 type EpisodeRow = {
   id: number;
   show_id: number;
@@ -80,6 +93,7 @@ type ImportJobRow = {
   rows_updated: number | null;
   rows_skipped: number | null;
   counts_json: string | null;
+  preview_json: string | null;
   error_text: string | null;
   created_at: string;
   finished_at: string | null;
@@ -339,11 +353,84 @@ export function getProgressViewDefault(db: WeebScreenDatabase): "canon" | "all" 
   return getSetting(db, "progress_view_default") === "all" ? "all" : "canon";
 }
 
-export function upsertShowImport(db: WeebScreenDatabase, preview: ImportPreview): { showId: number; inserted: number; updated: number } {
+export function getSettingsSnapshot(db: WeebScreenDatabase): SettingsSnapshot {
+  const overrideRows = db
+    .prepare(
+      `SELECT key, value
+       FROM app_settings
+       WHERE key LIKE 'skip_filler:%' OR key LIKE 'season_details:%'
+       ORDER BY key`,
+    )
+    .all() as Array<{ key: string; value: string }>;
+
+  const bySlug = new Map<string, { showSlug: string; skipFiller: boolean | null; seasonDetails: boolean | null }>();
+  for (const row of overrideRows) {
+    const splitIndex = row.key.indexOf(":");
+    if (splitIndex < 0) {
+      continue;
+    }
+
+    const keyPrefix = row.key.slice(0, splitIndex);
+    const showSlug = row.key.slice(splitIndex + 1);
+    if (showSlug.length === 0) {
+      continue;
+    }
+
+    const current = bySlug.get(showSlug) ?? {
+      showSlug,
+      skipFiller: null,
+      seasonDetails: null,
+    };
+
+    if (keyPrefix === "skip_filler") {
+      current.skipFiller = row.value === "true";
+    } else if (keyPrefix === "season_details") {
+      current.seasonDetails = row.value === "true";
+    }
+
+    bySlug.set(showSlug, current);
+  }
+
+  return {
+    defaults: {
+      skipFiller: getSetting(db, "skip_filler_default") === "true",
+      progressView: getProgressViewDefault(db),
+      seasonDetails: getSetting(db, "season_details_default") === "true",
+    },
+    showOverrides: [...bySlug.values()].sort((left, right) => left.showSlug.localeCompare(right.showSlug)),
+  };
+}
+
+export function countMissingEpisodesForImport(
+  db: WeebScreenDatabase,
+  showSlug: string,
+  incomingRealEpisodeNumbers: number[],
+): number | null {
+  const show = getShow(db, showSlug);
+  if (!show) {
+    return null;
+  }
+
+  const incoming = new Set<number>(incomingRealEpisodeNumbers);
+  const existingRows = db
+    .prepare("SELECT real_episode_number FROM episodes WHERE show_id = ?")
+    .all(show.id) as Array<{ real_episode_number: number }>;
+
+  return existingRows.reduce(
+    (count, row) => (incoming.has(row.real_episode_number) ? count : count + 1),
+    0,
+  );
+}
+
+export function upsertShowImport(
+  db: WeebScreenDatabase,
+  preview: ImportPreview,
+): { showId: number; inserted: number; updated: number; skipped: number } {
   const now = nowIso();
   const existing = getShow(db, preview.show.slug);
   let inserted = 0;
   let updated = 0;
+  let skipped = 0;
 
   const transaction = db.transaction(() => {
     const showId =
@@ -391,6 +478,18 @@ export function upsertShowImport(db: WeebScreenDatabase, preview: ImportPreview)
         preview.show.notes,
         now,
         existing.id,
+      );
+    }
+
+    if (existing) {
+      const incomingRealEpisodeNumbers = new Set<number>(preview.episodes.map((episode) => episode.realEpisodeNumber));
+      const missingRows = db
+        .prepare("SELECT real_episode_number FROM episodes WHERE show_id = ?")
+        .all(showId) as Array<{ real_episode_number: number }>;
+
+      skipped = missingRows.reduce(
+        (count, row) => (incomingRealEpisodeNumbers.has(row.real_episode_number) ? count : count + 1),
+        0,
       );
     }
 
@@ -443,7 +542,7 @@ export function upsertShowImport(db: WeebScreenDatabase, preview: ImportPreview)
   });
 
   const showId = transaction() as number;
-  return { showId, inserted, updated };
+  return { showId, inserted, updated, skipped };
 }
 
 export function createPreviewImportJob(db: WeebScreenDatabase, preview: ImportPreview, filename: string): ImportJob {
@@ -460,10 +559,11 @@ export function createPreviewImportJob(db: WeebScreenDatabase, preview: ImportPr
         rows_updated,
         rows_skipped,
         counts_json,
+        preview_json,
         error_text,
         created_at
       )
-      VALUES (?, ?, ?, 'preview', ?, 0, 0, 0, ?, ?, ?)`,
+      VALUES (?, ?, ?, 'preview', ?, 0, 0, 0, ?, ?, ?, ?)`,
     )
     .run(
       filename,
@@ -471,6 +571,7 @@ export function createPreviewImportJob(db: WeebScreenDatabase, preview: ImportPr
       preview.show.slug,
       preview.episodes.length,
       JSON.stringify(preview.counts),
+      JSON.stringify(preview),
       formatIssueSummary(preview),
       now,
     );
@@ -484,6 +585,7 @@ export function markImportJobCommitted(
   showId: number,
   rowsImported: number,
   rowsUpdated: number,
+  rowsSkipped: number,
 ): void {
   db.prepare(
     `UPDATE import_jobs
@@ -491,9 +593,10 @@ export function markImportJobCommitted(
          status = 'committed',
          rows_imported = ?,
          rows_updated = ?,
+         rows_skipped = ?,
          finished_at = ?
      WHERE id = ?`,
-  ).run(showId, rowsImported, rowsUpdated, nowIso(), jobId);
+  ).run(showId, rowsImported, rowsUpdated, rowsSkipped, nowIso(), jobId);
 }
 
 export function markImportJobFailed(db: WeebScreenDatabase, jobId: number, errorText: string): void {
@@ -514,6 +617,22 @@ export function getImportJob(db: WeebScreenDatabase, jobId: number): ImportJob |
 export function listImportJobs(db: WeebScreenDatabase): ImportJob[] {
   const rows = db.prepare("SELECT * FROM import_jobs ORDER BY created_at DESC, id DESC LIMIT 50").all() as ImportJobRow[];
   return rows.map(mapImportJob);
+}
+
+export function getImportPreviewFromJob(db: WeebScreenDatabase, jobId: number): ImportPreview | null {
+  const row = db
+    .prepare("SELECT preview_json FROM import_jobs WHERE id = ?")
+    .get(jobId) as { preview_json: string | null } | undefined;
+
+  if (!row?.preview_json) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(row.preview_json) as ImportPreview;
+  } catch (_error) {
+    return null;
+  }
 }
 
 type RunnableStatement = {

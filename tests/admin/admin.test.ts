@@ -15,6 +15,7 @@ describe("admin import flow", () => {
     try {
       expect((await app.inject({ method: "GET", url: "/admin" })).statusCode).toBe(403);
       expect((await app.inject({ method: "GET", url: "/admin", headers: { "x-weebscreen-admin-token": "wrong" } })).statusCode).toBe(403);
+      expect((await app.inject({ method: "GET", url: `/admin?token=${token}` })).statusCode).toBe(403);
       expect((await app.inject({ method: "GET", url: "/admin", headers: { "x-weebscreen-admin-token": token } })).statusCode).toBe(200);
     } finally {
       await app.close();
@@ -59,10 +60,11 @@ describe("admin import flow", () => {
       expect(commit.statusCode).toBe(200);
       expect(commit.body).toContain("Import committed.");
       expect(getNextEpisode(db, "naruto-shippuden", false)?.next?.realEpisodeNumber).toBe(1);
-      expect(db.prepare("SELECT status, rows_imported, rows_updated FROM import_jobs WHERE id = ?").get(jobId)).toEqual({
+      expect(db.prepare("SELECT status, rows_imported, rows_updated, rows_skipped FROM import_jobs WHERE id = ?").get(jobId)).toEqual({
         status: "committed",
         rows_imported: 500,
         rows_updated: 0,
+        rows_skipped: 0,
       });
     } finally {
       await app.close();
@@ -82,9 +84,91 @@ describe("admin import flow", () => {
       await commitJob(app, secondJob);
 
       expect(getNextEpisode(db, "naruto-shippuden", false)?.next?.realEpisodeNumber).toBe(2);
-      expect(db.prepare("SELECT rows_imported, rows_updated FROM import_jobs WHERE id = ?").get(secondJob)).toEqual({
+      expect(db.prepare("SELECT rows_imported, rows_updated, rows_skipped FROM import_jobs WHERE id = ?").get(secondJob)).toEqual({
         rows_imported: 0,
         rows_updated: 500,
+        rows_skipped: 0,
+      });
+    } finally {
+      await app.close();
+      cleanup();
+    }
+  });
+
+  it("commits a preview after restart by loading preview JSON from import_jobs", async () => {
+    const { db, cleanup } = createTempDatabase();
+    const appA = await buildServer(db, { adminToken: token });
+
+    let jobId = 0;
+    try {
+      jobId = await previewWorkbook(appA);
+    } finally {
+      await appA.close();
+    }
+
+    const appB = await buildServer(db, { adminToken: token });
+    try {
+      await commitJob(appB, jobId);
+
+      expect(db.prepare("SELECT status, rows_imported FROM import_jobs WHERE id = ?").get(jobId)).toEqual({
+        status: "committed",
+        rows_imported: 500,
+      });
+    } finally {
+      await appB.close();
+      cleanup();
+    }
+  });
+
+  it("exposes settings and requires admin token for settings mutations", async () => {
+    const { db, cleanup } = createTempDatabase();
+    const app = await buildServer(db, { adminToken: token });
+
+    try {
+      const initial = await app.inject({ method: "GET", url: "/settings" });
+      expect(initial.statusCode).toBe(200);
+      expect(JSON.parse(initial.body)).toEqual({
+        defaults: {
+          skipFiller: false,
+          progressView: "canon",
+          seasonDetails: false,
+        },
+        showOverrides: [],
+      });
+
+      const denied = await app.inject({
+        method: "POST",
+        url: "/settings",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        payload: "skip_filler_default=true",
+      });
+      expect(denied.statusCode).toBe(403);
+
+      const updated = await app.inject({
+        method: "POST",
+        url: "/settings",
+        headers: {
+          "x-weebscreen-admin-token": token,
+          "content-type": "application/x-www-form-urlencoded",
+        },
+        payload:
+          "skip_filler_default=true&season_details_default=true&progress_view_default=all&show_slug=naruto-shippuden&skip_filler=false&season_details=true",
+      });
+
+      expect(updated.statusCode).toBe(200);
+      expect(JSON.parse(updated.body)).toEqual({
+        defaults: {
+          skipFiller: true,
+          progressView: "all",
+          seasonDetails: true,
+        },
+        showOverrides: [
+          {
+            showSlug: "naruto-shippuden",
+            skipFiller: false,
+            seasonDetails: true,
+          },
+        ],
       });
     } finally {
       await app.close();
@@ -156,4 +240,3 @@ function multipartBody(
   chunks.push(Buffer.from(`\r\n--${boundary}--\r\n`));
   return Buffer.concat(chunks);
 }
-

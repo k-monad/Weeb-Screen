@@ -23,6 +23,7 @@ export function openDatabase(filename = process.env.WEEBSCREEN_DB_PATH ?? DEFAUL
 
 export function initializeDatabase(db: WeebScreenDatabase): void {
   db.exec(SCHEMA_SQL);
+  ensureImportJobsColumns(db);
 }
 
 export function getPragmaValue(db: WeebScreenDatabase, pragma: string): unknown {
@@ -40,5 +41,16 @@ export function assertDatabaseRuntimePragmas(db: WeebScreenDatabase): void {
 
   if (journalMode !== "wal") {
     throw new Error(`SQLite journal_mode must be WAL; received ${journalMode}`);
+  }
+}
+
+function ensureImportJobsColumns(db: WeebScreenDatabase): void {
+  const columns = db
+    .prepare("PRAGMA table_info(import_jobs)")
+    .all()
+    .map((row) => (row as { name: string }).name);
+
+  if (!columns.includes("preview_json")) {
+    db.exec("ALTER TABLE import_jobs ADD COLUMN preview_json TEXT");
   }
 }

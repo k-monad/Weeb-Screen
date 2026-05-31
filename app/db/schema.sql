@@ -75,6 +75,7 @@ CREATE TABLE IF NOT EXISTS import_jobs (
   rows_updated   INTEGER,
   rows_skipped   INTEGER,
   counts_json    TEXT,
+  preview_json   TEXT,
   error_text     TEXT,
   created_at     TEXT NOT NULL,
   finished_at    TEXT
@@ -95,4 +96,3 @@ VALUES
   ('progress_view_default', 'canon'),
   ('season_details_default', 'false')
 ON CONFLICT(key) DO NOTHING;
-
