@@ -122,12 +122,18 @@ export function getShowDetail(db: WeebScreenDatabase, slug: string, options: Sho
     return null;
   }
 
+  const skipFiller = getShowBooleanSetting(db, "skip_filler", show.slug, "skip_filler_default");
+  const seasonDetails = getShowBooleanSetting(db, "season_details", show.slug, "season_details_default");
   const where: string[] = ["e.show_id = ?"];
   const params: unknown[] = [show.id, PROFILE_ID];
 
   if (options.bucket && options.bucket !== "All") {
     where.push("e.filler_bucket = ?");
     params.push(options.bucket);
+  }
+
+  if (skipFiller) {
+    where.push("e.filler_bucket != 'Yes'");
   }
 
   if (options.unwatched) {
@@ -161,8 +167,8 @@ export function getShowDetail(db: WeebScreenDatabase, slug: string, options: Sho
     summary: getProgressSummary(db, show.id),
     episodes: rows.map(mapEpisode),
     preferences: {
-      skipFiller: getShowBooleanSetting(db, "skip_filler", show.slug, "skip_filler_default"),
-      seasonDetails: getShowBooleanSetting(db, "season_details", show.slug, "season_details_default"),
+      skipFiller,
+      seasonDetails,
     },
   };
 }
