@@ -15,17 +15,38 @@ export function libraryPage(shows: ShowSummary[]): string {
 }
 
 export function showPage(detail: ShowDetail, next: NextEpisodeResult, options: ShowPageOptions): string {
+  const nextRealEpisodeNumber = next.next?.realEpisodeNumber ?? null;
+  const lastRealNum = Math.max(detail.show.totalRealEpisodes ?? 0, ...detail.episodes.map((episode) => episode.realEpisodeNumber), 1);
+  const canonPercent = detail.summary.canonTotal === 0 ? 0 : Math.round((detail.summary.canonWatched / detail.summary.canonTotal) * 100);
   const episodes = detail.preferences.seasonDetails
-    ? renderSeasonGroups(detail.show.slug, detail.episodes)
-    : `<section class="episode-list" data-view-mode="flat">${detail.episodes.map((episode) => episodeRow(detail.show.slug, episode, false)).join("")}</section>`;
+    ? renderSeasonGroups(detail.show.slug, detail.episodes, nextRealEpisodeNumber)
+    : `<section class="episode-list" data-view-mode="flat">${
+        detail.episodes.length === 0
+          ? `<p class="empty-state">No episodes match this filter.</p>`
+          : detail.episodes.map((episode) => episodeRow(detail.show.slug, episode, false, episode.realEpisodeNumber === nextRealEpisodeNumber)).join("")
+      }</section>`;
 
   return layout(
     detail.show.title,
     `<main class="show-shell" data-show-slug="${escapeAttribute(detail.show.slug)}">
+      <div class="sr-only" aria-live="polite" data-live-region></div>
       <header class="show-header">
         <a href="/" class="back-link">Library</a>
-        <h1>${escapeHtml(detail.show.title)}</h1>
-        <p>${detail.summary.canonWatched} / ${detail.summary.canonTotal} canon watched &middot; ${detail.summary.allWatched} / ${detail.summary.allTotal} all watched</p>
+        <div class="show-header__top">
+          <h1>${escapeHtml(detail.show.title)}</h1>
+          <div class="bulk">
+            <form method="post" action="/shows/${escapeAttribute(detail.show.slug)}/watched/up-to/${lastRealNum}" data-watch-form data-confirm="Mark all ${lastRealNum} episodes watched?" data-live-success="Marked all episodes watched.">
+              <input type="hidden" name="watched" value="true">
+              <button type="submit" class="btn btn--quiet">Mark all watched</button>
+            </form>
+            <form method="post" action="/shows/${escapeAttribute(detail.show.slug)}/watched/up-to/1" data-watch-form data-confirm="Unwatch all episodes?" data-live-success="Marked all episodes unwatched.">
+              <input type="hidden" name="watched" value="false">
+              <button type="submit" class="btn btn--quiet">Unwatch all</button>
+            </form>
+          </div>
+        </div>
+        <p class="show-progress-text"><strong>${detail.summary.canonWatched} / ${detail.summary.canonTotal}</strong> canon &middot; <strong>${detail.summary.allWatched} / ${detail.summary.allTotal}</strong> all watched</p>
+        <div class="bar bar--header" aria-hidden="true"><i style="width:${canonPercent}%"></i></div>
       </header>
       ${nextCard(detail.show.slug, next, detail.preferences.seasonDetails)}
       ${controls(detail, options)}
@@ -76,23 +97,30 @@ function showCard(show: ShowSummary): string {
 
 function nextCard(slug: string, next: NextEpisodeResult, showCode: boolean): string {
   if (next.next) {
+    const nextLabel = `${showCode ? `${next.next.serviceEpisodeCode} ` : ""}${next.next.episodeTitle}`.trim();
     return `<section class="next-card">
       <span class="${badgeClass(next.next.fillerBucket)}">${bucketLabel(next.next.fillerBucket)}</span>
-      <div>
-        <p>Play next</p>
+      <div class="next-card__body">
+        <p class="eyebrow">Play next</p>
         <h2>${showCode ? `<span class="service-code">${escapeHtml(next.next.serviceEpisodeCode)}</span> ` : ""}${escapeHtml(next.next.episodeTitle)}</h2>
+      </div>
+      <div class="next-card__actions">
+        <form method="post" action="/shows/${escapeAttribute(slug)}/episodes/${next.next.realEpisodeNumber}/watched" data-watch-form data-live-success="Marked ${escapeAttribute(nextLabel)} watched.">
+          <input type="hidden" name="watched" value="true">
+          <button type="submit" class="btn btn--primary">&#10003; Mark watched</button>
+        </form>
+        <a class="btn btn--quiet" href="#ep-${next.next.realEpisodeNumber}">Jump to list</a>
       </div>
     </section>`;
   }
 
-  const message =
-    next.reason === "only-filler-remaining"
-      ? `No more canon - ${next.fillerRemaining} filler episodes remain. Show them?`
-      : next.reason === "all-canon-watched"
-        ? "All canon watched"
-        : "All caught up";
+  const message = next.reason === "only-filler-remaining"
+    ? `No more canon - ${next.fillerRemaining} filler episodes remain. <a href="/shows/${escapeAttribute(slug)}?bucket=Yes">Show them?</a>`
+    : next.reason === "all-canon-watched"
+      ? "All canon watched"
+      : "All caught up";
 
-  return `<section class="next-card is-done"><h2>${escapeHtml(message)}</h2></section>`;
+  return `<section class="next-card is-done"><h2>${message}</h2></section>`;
 }
 
 function controls(detail: ShowDetail, options: ShowPageOptions): string {
@@ -125,36 +153,66 @@ function selectOption(value: string, label: string, selected: string): string {
   return `<option value="${escapeAttribute(value)}"${value === selected ? " selected" : ""}>${escapeHtml(label)}</option>`;
 }
 
-function renderSeasonGroups(showSlug: string, episodes: EpisodeWithProgress[]): string {
+function renderSeasonGroups(showSlug: string, episodes: EpisodeWithProgress[], nextRealEpisodeNumber: number | null): string {
+  if (episodes.length === 0) {
+    return '<section class="episode-list season-mode" data-view-mode="season"><p class="empty-state">No episodes match this filter.</p></section>';
+  }
+
   const groups = new Map<number, EpisodeWithProgress[]>();
   for (const episode of episodes) {
     groups.set(episode.serviceSeasonNumber, [...(groups.get(episode.serviceSeasonNumber) ?? []), episode]);
   }
 
+  const nextSeasonNumber = nextRealEpisodeNumber === null
+    ? null
+    : episodes.find((episode) => episode.realEpisodeNumber === nextRealEpisodeNumber)?.serviceSeasonNumber ?? null;
+
   return `<section class="episode-list season-mode" data-view-mode="season">${[...groups.entries()]
     .map(([season, seasonEpisodes]) => {
       const watched = seasonEpisodes.filter((episode) => episode.watched).length;
-      return `<details class="season" open>
-        <summary>Season ${season} <span>${watched} / ${seasonEpisodes.length} watched</span></summary>
-        ${seasonEpisodes.map((episode) => episodeRow(showSlug, episode, true)).join("")}
+      return `<details class="season"${season === nextSeasonNumber ? " open" : ""}>
+        <summary>
+          <span class="caret" aria-hidden="true">&#9656;</span>
+          Season ${season}
+          <span class="season__progress">${watched} / ${seasonEpisodes.length} watched</span>
+          <span class="season__bulk">
+            <form method="post" action="/shows/${escapeAttribute(showSlug)}/seasons/${season}/watched" data-watch-form data-live-success="Marked season ${season} watched.">
+              <input type="hidden" name="watched" value="true">
+              <button type="submit" class="btn btn--quiet btn--sm">Mark season watched</button>
+            </form>
+          </span>
+        </summary>
+        ${seasonEpisodes.map((episode) => episodeRow(showSlug, episode, true, episode.realEpisodeNumber === nextRealEpisodeNumber)).join("")}
       </details>`;
     })
     .join("")}</section>`;
 }
 
-function episodeRow(showSlug: string, episode: EpisodeWithProgress, showCode: boolean): string {
-  return `<article class="ep${episode.watched ? " is-watched" : ""}" data-real="${episode.realEpisodeNumber}">
+function episodeRow(showSlug: string, episode: EpisodeWithProgress, showCode: boolean, isNext = false): string {
+  const episodeLabel = `${showCode ? `${episode.serviceEpisodeCode} ` : ""}${episode.episodeTitle}`.trim();
+  return `<article class="ep${episode.watched ? " is-watched" : ""}${isNext ? " is-next" : ""}" id="ep-${episode.realEpisodeNumber}" data-real="${episode.realEpisodeNumber}">
     <span class="${badgeClass(episode.fillerBucket)}">${bucketLabel(episode.fillerBucket)}</span>
     <div class="ep__main">
-      <h3>${showCode ? `<span class="service-code">${escapeHtml(episode.serviceEpisodeCode)}</span> ` : ""}${escapeHtml(episode.episodeTitle)}</h3>
+      <h3>${showCode ? `<span class="service-code">${escapeHtml(episode.serviceEpisodeCode)}</span> ` : ""}${escapeHtml(episode.episodeTitle)}${isNext ? ' <span class="up-next-tag">Up next</span>' : ""}</h3>
       <p class="ep__meta">Episode ${episode.realEpisodeNumber}${episode.originalAirdate ? ` &middot; ${escapeHtml(episode.originalAirdate)}` : ""}</p>
     </div>
     <div class="ep__actions">
-      ${episode.watched ? '<span class="watched-flag">&#10003; Watched</span>' : ""}
-      <form method="post" action="/shows/${escapeAttribute(showSlug)}/episodes/${episode.realEpisodeNumber}/watched" data-watch-form>
-        <input type="hidden" name="watched" value="${episode.watched ? "false" : "true"}">
-        <button type="submit" class="btn ${episode.watched ? "btn--quiet" : "btn--primary"} btn--sm">${episode.watched ? "Undo" : "Mark watched"}</button>
+      ${
+        episode.watched
+          ? `<span class="watched-flag">&#10003; Watched</span>
+      <form method="post" action="/shows/${escapeAttribute(showSlug)}/episodes/${episode.realEpisodeNumber}/watched" data-watch-form data-live-success="Marked ${escapeAttribute(episodeLabel)} unwatched.">
+        <input type="hidden" name="watched" value="false">
+        <button type="submit" class="btn btn--quiet btn--sm">Undo</button>
+      </form>`
+          : `<form method="post" action="/shows/${escapeAttribute(showSlug)}/episodes/${episode.realEpisodeNumber}/watched" data-watch-form data-live-success="Marked ${escapeAttribute(episodeLabel)} watched.">
+        <input type="hidden" name="watched" value="true">
+        <button type="submit" class="btn btn--primary btn--sm">Mark watched</button>
       </form>
+      <form method="post" action="/shows/${escapeAttribute(showSlug)}/watched/up-to/${episode.realEpisodeNumber}" data-watch-form data-live-success="Marked episodes up to ${episode.realEpisodeNumber} watched.">
+        <input type="hidden" name="watched" value="true">
+        <button type="submit" class="btn btn--quiet btn--sm">Mark up to here</button>
+      </form>`
+      }
     </div>
   </article>`;
 }
@@ -240,6 +298,7 @@ button, select, input { font: inherit; }
 .show-card { display: flex; justify-content: space-between; gap: var(--space-4); padding: var(--space-4); margin-bottom: var(--space-3); align-items: center; }
 .show-card h2, .show-header h1, .next-card h2, .ep__main h3 { margin: 0; letter-spacing: 0; }
 .show-card p, .show-header p, .next-card p, .ep__meta { color: var(--text-muted); margin: 4px 0 0; }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 .progress { min-width: 170px; }
 .progress span { display: block; color: var(--text-muted); font-size: var(--text-sm); }
 .bar { height: 8px; background: var(--track); border-radius: var(--radius-pill); margin-top: var(--space-2); overflow: hidden; }
@@ -247,6 +306,11 @@ button, select, input { font: inherit; }
 .back-link { color: var(--text-muted); display: inline-block; margin-bottom: var(--space-2); text-decoration: none; }
 .back-link:hover { text-decoration: underline; }
 .show-header { padding: 20px 0 16px; }
+.show-header__top { display: flex; gap: var(--space-4); align-items: baseline; justify-content: space-between; flex-wrap: wrap; }
+.bulk { display: flex; gap: var(--space-1); }
+.show-progress-text { color: var(--text-muted); margin: 8px 0 0; }
+.show-progress-text strong { color: var(--text); }
+.bar--header { margin-top: 10px; }
 
 :where(a, button, select, input, summary, [role="radio"]):focus-visible {
   outline: 3px solid var(--focus);
@@ -278,8 +342,19 @@ button, select, input { font: inherit; }
 .btn--quiet:hover { background: var(--surface-sunk); color: var(--text); }
 .btn--sm { min-height: var(--control-min); padding: 0 10px; font-size: var(--text-sm); }
 
-.next-card { display: flex; gap: 14px; align-items: center; padding: 16px; margin-bottom: 12px; }
-.next-card.is-done { display: block; }
+.next-card {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  padding: 16px;
+  border-left: 4px solid var(--primary);
+  margin-bottom: 12px;
+}
+.next-card .eyebrow { margin: 0; color: var(--text-muted); font-size: var(--text-sm); text-transform: uppercase; letter-spacing: 0.06em; }
+.next-card h2 { margin: 2px 0 0; font-size: var(--text-lg); }
+.next-card__body { flex: 1; min-width: 0; }
+.next-card__actions { display: flex; gap: var(--space-2); align-items: center; }
+.next-card.is-done { justify-content: center; text-align: center; border-left-color: var(--border); }
 
 .controls {
   display: flex;
@@ -326,19 +401,50 @@ button, select, input { font: inherit; }
 .ep.is-watched { background: var(--watched-tint); box-shadow: inset 3px 0 0 var(--primary); }
 .ep.is-watched .ep__main h3 { color: var(--text-muted); }
 .watched-flag { display: inline-flex; align-items: center; gap: 6px; color: var(--badge-canon-fg); font-weight: 700; font-size: var(--text-sm); }
+.ep.is-next { box-shadow: inset 3px 0 0 var(--primary), 0 0 0 1px var(--primary); }
+.ep.is-next .up-next-tag {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 1px 8px;
+  border-radius: var(--radius-pill);
+  background: var(--primary);
+  color: #fff;
+  font-size: var(--text-xs);
+  font-weight: 700;
+  vertical-align: middle;
+}
 
-.season { padding: 8px; }
-.season summary { cursor: pointer; font-weight: 750; padding: 6px 4px 12px; }
-.season summary span { color: var(--text-muted); font-weight: 500; margin-left: 8px; }
+.season { padding: 8px; margin-bottom: 8px; }
+.season > summary {
+  cursor: pointer;
+  font-weight: 750;
+  padding: 8px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  list-style: none;
+}
+.season > summary::-webkit-details-marker { display: none; }
+.season > summary .caret { transition: transform 0.15s; }
+.season[open] > summary .caret { transform: rotate(90deg); }
+.season__progress { color: var(--text-muted); font-weight: 500; }
+.season__bulk { margin-left: auto; display: flex; gap: var(--space-1); }
+.season .ep { margin-top: 8px; }
+.empty-state { margin: 0; padding: var(--space-4); color: var(--text-muted); background: var(--surface); border: 1px dashed var(--border-strong); border-radius: var(--radius-md); }
 .empty { width: min(640px, calc(100% - 24px)); margin: 15vh auto; text-align: center; }
 
 @media (max-width: 680px) {
   .show-card, .next-card, .ep { grid-template-columns: 1fr; display: grid; }
   .progress { min-width: 0; width: 100%; }
+  .bulk { width: 100%; flex-wrap: wrap; }
+  .bulk form { flex: 1; min-width: 200px; }
   .controls, .control-form { display: grid; width: 100%; }
   .toggle-row, .toggle-row button, .control-form select, .apply-button { width: 100%; }
   .ep__actions { justify-content: stretch; }
   .ep__actions .btn { flex: 1; }
+  .next-card__actions { width: 100%; }
+  .next-card__actions .btn { flex: 1; }
 }
 `;
 }
@@ -382,6 +488,10 @@ function clientScript(): string {
     document.querySelectorAll("[data-watch-form]").forEach((form) => {
       form.addEventListener("submit", async (event) => {
         event.preventDefault();
+        const confirmText = form.getAttribute("data-confirm");
+        if (confirmText && !window.confirm(confirmText)) {
+          return;
+        }
         await fetch(form.action, {
           method: "POST",
           body: new URLSearchParams(new FormData(form)),
