@@ -17,7 +17,9 @@ export function libraryPage(shows: ShowSummary[]): string {
 export function showPage(detail: ShowDetail, next: NextEpisodeResult, options: ShowPageOptions): string {
   const nextRealEpisodeNumber = next.next?.realEpisodeNumber ?? null;
   const lastRealNum = Math.max(detail.show.totalRealEpisodes ?? 0, ...detail.episodes.map((episode) => episode.realEpisodeNumber), 1);
-  const canonPercent = detail.summary.canonTotal === 0 ? 0 : Math.round((detail.summary.canonWatched / detail.summary.canonTotal) * 100);
+  const { canonWatched, canonTotal, allWatched, allTotal } = detail.summary;
+  const canonPercent = canonTotal === 0 ? 0 : Math.round((canonWatched / canonTotal) * 100);
+  const allPercent = allTotal === 0 ? 0 : Math.round((allWatched / allTotal) * 100);
   const episodes = detail.preferences.seasonDetails
     ? renderSeasonGroups(detail.show.slug, detail.episodes, nextRealEpisodeNumber)
     : `<section class="episode-list" data-view-mode="flat">${
@@ -35,23 +37,46 @@ export function showPage(detail: ShowDetail, next: NextEpisodeResult, options: S
         <div class="show-header__top">
           <h1>${escapeHtml(detail.show.title)}</h1>
           <div class="bulk">
-            <form method="post" action="/shows/${escapeAttribute(detail.show.slug)}/watched/up-to/${lastRealNum}" data-watch-form data-confirm="Mark all ${lastRealNum} episodes watched?" data-live-success="Marked all episodes watched.">
+            <form method="post" action="/shows/${escapeAttribute(detail.show.slug)}/watched/up-to/${lastRealNum}" data-watch-form data-confirm="Mark all ${lastRealNum} episodes watched?" data-live-success="Marked all episodes watched." data-undo-action="/shows/${escapeAttribute(detail.show.slug)}/watched/up-to/1" data-undo-watched="false" data-undo-label="Marked all episodes unwatched.">
               <input type="hidden" name="watched" value="true">
-              <button type="submit" class="btn btn--quiet">Mark all watched</button>
+              <button type="submit" class="btn btn--secondary">Mark all watched</button>
             </form>
-            <form method="post" action="/shows/${escapeAttribute(detail.show.slug)}/watched/up-to/1" data-watch-form data-confirm="Unwatch all episodes?" data-live-success="Marked all episodes unwatched.">
+            <form method="post" action="/shows/${escapeAttribute(detail.show.slug)}/watched/up-to/1" data-watch-form data-confirm="Unwatch all episodes?" data-live-success="Marked all episodes unwatched." data-undo-action="/shows/${escapeAttribute(detail.show.slug)}/watched/up-to/${lastRealNum}" data-undo-watched="true" data-undo-label="Marked all episodes watched.">
               <input type="hidden" name="watched" value="false">
-              <button type="submit" class="btn btn--quiet">Unwatch all</button>
+              <button type="submit" class="btn btn--secondary">Unwatch all</button>
             </form>
           </div>
         </div>
-        <p class="show-progress-text"><strong>${detail.summary.canonWatched} / ${detail.summary.canonTotal}</strong> canon &middot; <strong>${detail.summary.allWatched} / ${detail.summary.allTotal}</strong> all watched</p>
-        <div class="bar bar--header" aria-hidden="true"><i style="width:${canonPercent}%"></i></div>
+        <div class="metrics">
+          <div class="metric">
+            <div class="metric__label">
+              <span class="metric__term" title="Filler-free episodes - the canonical story." tabindex="0">Canon</span>
+              <strong>${canonWatched} / ${canonTotal}</strong>
+            </div>
+            <div class="bar" role="img" aria-label="Canon: ${canonWatched} of ${canonTotal} watched">
+              <i style="width:${canonPercent}%"></i>
+            </div>
+          </div>
+          <div class="metric">
+            <div class="metric__label">
+              <span>All</span>
+              <strong>${allWatched} / ${allTotal}</strong>
+            </div>
+            <div class="bar" role="img" aria-label="All: ${allWatched} of ${allTotal} watched">
+              <i style="width:${allPercent}%"></i>
+            </div>
+          </div>
+          <p class="sr-only">Canon counts only filler-free episodes; All counts every episode.</p>
+        </div>
       </header>
       ${nextCard(detail.show.slug, next, detail.preferences.seasonDetails)}
       ${controls(detail, options)}
       ${episodes}
-    </main>`,
+    </main>
+    <div class="toast" data-toast hidden aria-hidden="true">
+      <span class="toast__msg" data-toast-msg></span>
+      <button type="button" class="btn btn--quiet btn--sm toast__undo" data-toast-undo hidden>Undo</button>
+    </div>`,
   );
 }
 
@@ -182,15 +207,16 @@ function renderSeasonGroups(showSlug: string, episodes: EpisodeWithProgress[], n
   return `<section class="episode-list season-mode" data-view-mode="season">${[...groups.entries()]
     .map(([season, seasonEpisodes]) => {
       const watched = seasonEpisodes.filter((episode) => episode.watched).length;
+      const seasonConfirm = seasonEpisodes.length > 5 ? ` data-confirm="Mark all ${seasonEpisodes.length} episodes in Season ${season} watched?"` : "";
       return `<details class="season"${season === nextSeasonNumber ? " open" : ""}>
         <summary>
           <span class="caret" aria-hidden="true">&#9656;</span>
           Season ${season}
           <span class="season__progress">${watched} / ${seasonEpisodes.length} watched</span>
           <span class="season__bulk">
-            <form method="post" action="/shows/${escapeAttribute(showSlug)}/seasons/${season}/watched" data-watch-form data-live-success="Marked season ${season} watched.">
+            <form method="post" action="/shows/${escapeAttribute(showSlug)}/seasons/${season}/watched" data-watch-form data-live-success="Marked season ${season} watched." data-undo-action="/shows/${escapeAttribute(showSlug)}/seasons/${season}/watched" data-undo-watched="false" data-undo-label="Season ${season} reverted."${seasonConfirm}>
               <input type="hidden" name="watched" value="true">
-              <button type="submit" class="btn btn--quiet btn--sm">Mark season watched</button>
+              <button type="submit" class="btn btn--secondary btn--sm">Mark season watched</button>
             </form>
           </span>
         </summary>
@@ -202,6 +228,9 @@ function renderSeasonGroups(showSlug: string, episodes: EpisodeWithProgress[], n
 
 function episodeRow(showSlug: string, episode: EpisodeWithProgress, showCode: boolean, isNext = false): string {
   const episodeLabel = `${showCode ? `${episode.serviceEpisodeCode} ` : ""}${episode.episodeTitle}`.trim();
+  const upToConfirm = episode.realEpisodeNumber > 5
+    ? ` data-confirm="Mark all ${episode.realEpisodeNumber} episodes up to here watched?"`
+    : "";
   return `<article class="ep${episode.watched ? " is-watched" : ""}${isNext ? " is-next" : ""}" id="ep-${episode.realEpisodeNumber}" data-real="${episode.realEpisodeNumber}">
     <span class="${badgeClass(episode.fillerBucket)}">${bucketLabel(episode.fillerBucket)}</span>
     <div class="ep__main">
@@ -220,7 +249,7 @@ function episodeRow(showSlug: string, episode: EpisodeWithProgress, showCode: bo
         <input type="hidden" name="watched" value="true">
         <button type="submit" class="btn btn--primary btn--sm">Mark watched</button>
       </form>
-      <form method="post" action="/shows/${escapeAttribute(showSlug)}/watched/up-to/${episode.realEpisodeNumber}" data-watch-form data-live-success="Marked episodes up to ${episode.realEpisodeNumber} watched.">
+      <form method="post" action="/shows/${escapeAttribute(showSlug)}/watched/up-to/${episode.realEpisodeNumber}" data-watch-form data-live-success="Marked episodes up to ${episode.realEpisodeNumber} watched."${upToConfirm}>
         <input type="hidden" name="watched" value="true">
         <button type="submit" class="btn btn--quiet btn--sm">Mark up to here</button>
       </form>`
@@ -275,6 +304,9 @@ function css(): string {
   --primary-soft:#e3f5ec;
   --primary-text:#ffffff;
   --focus:#0b5cab;
+  --shadow-2:0 8px 24px rgba(20,50,35,.14);
+  --z-toast:50;
+  --danger-fg:#8a2424;
   --badge-canon-bg:#e3f5ec;
   --badge-canon-fg:#0d5d43;
   --badge-mixed-bg:#fff0cc;
@@ -320,9 +352,12 @@ button, select, input { font: inherit; }
 .show-header { padding: 20px 0 16px; }
 .show-header__top { display: flex; gap: var(--space-4); align-items: baseline; justify-content: space-between; flex-wrap: wrap; }
 .bulk { display: flex; gap: var(--space-1); }
-.show-progress-text { color: var(--text-muted); margin: 8px 0 0; }
-.show-progress-text strong { color: var(--text); }
-.bar--header { margin-top: 10px; }
+.metrics { margin-top: var(--space-2); display: grid; gap: var(--space-2); }
+.metric { display: grid; gap: 6px; }
+.metric__label { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); color: var(--text-muted); font-size: var(--text-sm); }
+.metric__label strong { color: var(--text); font-size: var(--text-base); }
+.metric .bar { margin-top: 0; }
+.metric__term { text-decoration: underline dotted; text-underline-offset: 2px; cursor: help; }
 
 :where(a, button, select, input, summary, [role="radio"]):focus-visible {
   outline: 3px solid var(--focus);
@@ -350,6 +385,8 @@ button, select, input { font: inherit; }
 .btn:hover, .button:hover { background: var(--surface-sunk); }
 .btn--primary { background: var(--primary); border-color: var(--primary); color: var(--primary-text); font-weight: 600; }
 .btn--primary:hover { background: var(--primary-hover); }
+.btn--secondary { background: var(--surface); border-color: var(--border-strong); color: var(--text); }
+.btn--secondary:hover { background: var(--surface-sunk); }
 .btn--quiet { background: transparent; border-color: transparent; color: var(--text-muted); }
 .btn--quiet:hover { background: var(--surface-sunk); color: var(--text); }
 .btn--sm { min-height: var(--control-min); padding: 0 10px; font-size: var(--text-sm); }
@@ -507,11 +544,44 @@ button, select, input { font: inherit; }
 .season .ep { margin-top: 8px; }
 .empty-state { margin: 0; padding: var(--space-4); color: var(--text-muted); background: var(--surface); border: 1px dashed var(--border-strong); border-radius: var(--radius-md); }
 .empty { width: min(640px, calc(100% - 24px)); margin: 15vh auto; text-align: center; }
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  transform: translate(-50%, 12px);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+  max-width: min(560px, calc(100% - 32px));
+  padding: var(--space-3) var(--space-4);
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-2);
+  z-index: var(--z-toast);
+  opacity: 0;
+  pointer-events: none;
+}
+.toast.is-visible {
+  opacity: 1;
+  transform: translate(-50%, 0);
+  pointer-events: auto;
+}
+.toast__msg {
+  font-size: var(--text-sm);
+  overflow-wrap: anywhere;
+}
+.toast__undo {
+  min-height: 32px;
+  color: var(--text);
+}
 
 @media (prefers-reduced-motion: no-preference) {
   .btn { transition: background 0.12s ease; }
   .switch__track, .switch__thumb { transition: all 0.15s ease; }
   .season > summary .caret { transition: transform 0.15s ease; }
+  .toast { transition: opacity 0.18s ease, transform 0.18s ease; }
 }
 
 @media (max-width: 680px) {
@@ -531,6 +601,8 @@ button, select, input { font: inherit; }
   .next-card { flex-wrap: wrap; }
   .next-card__actions { width: 100%; }
   .next-card__actions .btn { flex: 1; }
+  .toast { left: 16px; right: 16px; bottom: 16px; transform: translateY(12px); max-width: none; }
+  .toast.is-visible { transform: translateY(0); }
 }
 `;
 }
@@ -543,6 +615,8 @@ function clientScript(): string {
   const liveRegionSelector = "[data-live-region]";
   const saveFailureMessage = "Couldn't save - try again.";
   const filterFailureMessage = "Couldn't apply filter - try again.";
+  let toastTimer;
+  let toastHideTimer;
 
   function currentShell() {
     return document.querySelector(shellSelector);
@@ -554,6 +628,56 @@ function clientScript(): string {
     if (!liveRegion) return;
     liveRegion.textContent = "";
     liveRegion.textContent = message;
+  }
+
+  function hideToast() {
+    const toast = document.querySelector("[data-toast]");
+    if (!toast) return;
+    clearTimeout(toastTimer);
+    clearTimeout(toastHideTimer);
+    toast.classList.remove("is-visible");
+    toastHideTimer = setTimeout(() => {
+      if (!toast.classList.contains("is-visible")) toast.hidden = true;
+    }, 220);
+  }
+
+  function showToast(message, undo) {
+    const toast = document.querySelector("[data-toast]");
+    if (!toast || !message) return;
+    const messageNode = toast.querySelector("[data-toast-msg]");
+    const undoButton = toast.querySelector("[data-toast-undo]");
+    if (!(messageNode instanceof HTMLElement) || !(undoButton instanceof HTMLButtonElement)) return;
+
+    clearTimeout(toastTimer);
+    clearTimeout(toastHideTimer);
+    messageNode.textContent = message;
+
+    if (undo) {
+      undoButton.hidden = false;
+      undoButton.onclick = async () => {
+        hideToast();
+        try {
+          const response = await fetch(undo.action, {
+            method: "POST",
+            body: new URLSearchParams({ watched: undo.watched }),
+            headers: { Accept: "application/json" },
+          });
+          if (!response.ok) throw new Error("Undo failed");
+          const undoMessage = undo.label || "Undone.";
+          await refreshShow(window.location.href, false, undoMessage);
+          showToast(undoMessage);
+        } catch {
+          announce(saveFailureMessage);
+        }
+      };
+    } else {
+      undoButton.hidden = true;
+      undoButton.onclick = null;
+    }
+
+    toast.hidden = false;
+    requestAnimationFrame(() => toast.classList.add("is-visible"));
+    toastTimer = setTimeout(hideToast, undo ? 8000 : 4000);
   }
 
   function successMessage(form, fallback, submitEvent) {
@@ -622,7 +746,12 @@ function clientScript(): string {
             headers: { Accept: "application/json" },
           });
           if (!response.ok) throw new Error("Save failed");
-          await refreshShow(window.location.href, false, successMessage(form, "Saved.", event));
+          const message = successMessage(form, "Saved.", event);
+          const undo = form.dataset.undoAction
+            ? { action: form.dataset.undoAction, watched: form.dataset.undoWatched, label: form.dataset.undoLabel }
+            : null;
+          await refreshShow(window.location.href, false, message);
+          showToast(message, undo);
         } catch {
           announce(saveFailureMessage);
         }
@@ -639,7 +768,9 @@ function clientScript(): string {
             headers: { Accept: "application/json" },
           });
           if (!response.ok) throw new Error("Preference failed");
-          await refreshShow(window.location.href, false, successMessage(form, "Preferences updated.", event));
+          const message = successMessage(form, "Preferences updated.", event);
+          await refreshShow(window.location.href, false, message);
+          showToast(message);
         } catch {
           announce(saveFailureMessage);
         }
@@ -649,7 +780,9 @@ function clientScript(): string {
     document.querySelectorAll("[data-filter-form]").forEach((form) => {
       const applyFilter = async () => {
         try {
-          await refreshShow(filterUrl(form).toString(), true, filterAnnouncement(form));
+          const message = filterAnnouncement(form);
+          await refreshShow(filterUrl(form).toString(), true, message);
+          showToast(message);
         } catch {
           announce(filterFailureMessage);
         }

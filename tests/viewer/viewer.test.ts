@@ -1,6 +1,6 @@
 import { buildServer } from "../../src/server.js";
-import { initializeDatabase, openDatabase } from "../../src/db/database.js";
-import { getNextEpisode, setEpisodeWatched } from "../../src/db/repositories.js";
+import { initializeDatabase, openDatabase, type WeebScreenDatabase } from "../../src/db/database.js";
+import { getNextEpisode, setEpisodeWatched, upsertShowImport } from "../../src/db/repositories.js";
 import { createTempDatabase, seedDemoShow } from "../helpers/db.js";
 
 describe("viewer UI and progress semantics", () => {
@@ -41,6 +41,8 @@ describe("viewer UI and progress semantics", () => {
       expect(flat.body).toContain('data-view-mode="flat"');
       expect(flat.body).toContain("Canon");
       expect(flat.body).toContain("Filler Beach");
+      expect(flat.body).toContain('aria-label="Canon: 0 of 2 watched"');
+      expect(flat.body).toContain('aria-label="All: 0 of 5 watched"');
       expect(flat.body).not.toContain("S1E01");
       expect(flat.body).not.toContain("https://example.com/source");
 
@@ -136,6 +138,10 @@ describe("viewer UI and progress semantics", () => {
       expect(initial.body).toContain('action="/shows/demo-anime/watched/up-to/3"');
       expect(initial.body).toContain('action="/shows/demo-anime/watched/up-to/5"');
       expect(initial.body).toContain('action="/shows/demo-anime/watched/up-to/1"');
+      expect(initial.body).toContain('<button type="submit" class="btn btn--secondary">Mark all watched</button>');
+      expect(initial.body).toContain('<button type="submit" class="btn btn--secondary">Unwatch all</button>');
+      expect(initial.body).toContain('data-undo-action="/shows/demo-anime/watched/up-to/1"');
+      expect(initial.body).toContain('data-undo-action="/shows/demo-anime/watched/up-to/5"');
 
       await app.inject({
         method: "POST",
@@ -163,6 +169,8 @@ describe("viewer UI and progress semantics", () => {
       });
       const seasonView = await app.inject({ method: "GET", url: "/shows/demo-anime" });
       expect(seasonView.body).toContain('action="/shows/demo-anime/seasons/2/watched"');
+      expect(seasonView.body).toContain('class="btn btn--secondary btn--sm">Mark season watched</button>');
+      expect(seasonView.body).toContain('data-undo-action="/shows/demo-anime/seasons/2/watched"');
 
       await app.inject({
         method: "POST",
@@ -187,6 +195,50 @@ describe("viewer UI and progress semantics", () => {
         payload: "watched=true",
       });
       expect(getNextEpisode(db, "demo-anime", false)?.next).toBeNull();
+    } finally {
+      await app.close();
+      cleanup();
+    }
+  });
+
+  it("adds conditional bulk confirms and undo metadata with real counts", async () => {
+    const { db, cleanup } = createTempDatabase();
+    const app = await buildServer(db);
+    try {
+      seedLongDemoShow(db);
+
+      const flat = await app.inject({ method: "GET", url: "/shows/long-demo" });
+      expect(flat.body).toContain('data-toast hidden aria-hidden="true"');
+
+      const markAllForm = extractFormsByAction(flat.body, "/shows/long-demo/watched/up-to/6")[0] ?? "";
+      expect(markAllForm).toContain('data-confirm="Mark all 6 episodes watched?"');
+      expect(markAllForm).toContain('data-undo-action="/shows/long-demo/watched/up-to/1"');
+      expect(markAllForm).toContain('data-undo-watched="false"');
+
+      const unwatchAllForm = extractFormsByAction(flat.body, "/shows/long-demo/watched/up-to/1")[0] ?? "";
+      expect(unwatchAllForm).toContain('data-undo-action="/shows/long-demo/watched/up-to/6"');
+      expect(unwatchAllForm).toContain('data-undo-watched="true"');
+
+      const upToFiveForms = extractFormsByAction(flat.body, "/shows/long-demo/watched/up-to/5");
+      expect(upToFiveForms.some((form) => form.includes("data-confirm="))).toBe(false);
+
+      const upToSixForms = extractFormsByAction(flat.body, "/shows/long-demo/watched/up-to/6");
+      expect(
+        upToSixForms.some((form) => form.includes('data-confirm="Mark all 6 episodes up to here watched?"')),
+      ).toBe(true);
+
+      await app.inject({
+        method: "POST",
+        url: "/shows/long-demo/preferences",
+        payload: "season_details=true",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+      });
+
+      const grouped = await app.inject({ method: "GET", url: "/shows/long-demo" });
+      const seasonForm = extractFormsByAction(grouped.body, "/shows/long-demo/seasons/1/watched")[0] ?? "";
+      expect(seasonForm).toContain('data-confirm="Mark all 6 episodes in Season 1 watched?"');
+      expect(seasonForm).toContain('data-undo-action="/shows/long-demo/seasons/1/watched"');
+      expect(seasonForm).toContain('data-undo-watched="false"');
     } finally {
       await app.close();
       cleanup();
@@ -219,4 +271,111 @@ function extractRealOrder(html: string): number[] {
 
 function extractNextCard(html: string): string {
   return html.match(/<section class="next-card[\s\S]*?<\/section>/)?.[0] ?? "";
+}
+
+function extractFormsByAction(html: string, action: string): string[] {
+  const escapedAction = action.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return [...html.matchAll(new RegExp(`<form[^>]*\\saction="${escapedAction}"[^>]*>`, "g"))].map((match) => match[0]);
+}
+
+function seedLongDemoShow(db: WeebScreenDatabase): void {
+  upsertShowImport(db, {
+    format: "csv",
+    show: {
+      title: "Long Demo",
+      slug: "long-demo",
+      serviceName: "ExampleTV",
+      notes: null,
+      seasonBoundarySourceUrl: null,
+    },
+    counts: {
+      total: 6,
+      seasons: 1,
+      fillerBuckets: {
+        No: 3,
+        Mixed: 2,
+        Yes: 1,
+      },
+      canonFillerTypes: {
+        "Manga Canon": 3,
+        "Mixed Canon/Filler": 2,
+        Filler: 1,
+      },
+    },
+    issues: [],
+    episodes: [
+      {
+        realEpisodeNumber: 1,
+        serviceEpisodeCode: "S1E01",
+        episodeTitle: "Long Start",
+        fillerBucket: "No",
+        canonFillerType: "Manga Canon",
+        originalAirdate: "2026-01-01",
+        serviceSeasonNumber: 1,
+        serviceEpisodeNumber: 1,
+        episodeDataSourceUrl: "https://example.com/long-source",
+        seasonBoundarySourceUrl: "https://example.com/long-seasons",
+      },
+      {
+        realEpisodeNumber: 2,
+        serviceEpisodeCode: "S1E02",
+        episodeTitle: "Long Mixed One",
+        fillerBucket: "Mixed",
+        canonFillerType: "Mixed Canon/Filler",
+        originalAirdate: "2026-01-08",
+        serviceSeasonNumber: 1,
+        serviceEpisodeNumber: 2,
+        episodeDataSourceUrl: "https://example.com/long-source",
+        seasonBoundarySourceUrl: "https://example.com/long-seasons",
+      },
+      {
+        realEpisodeNumber: 3,
+        serviceEpisodeCode: "S1E03",
+        episodeTitle: "Long Canon Two",
+        fillerBucket: "No",
+        canonFillerType: "Manga Canon",
+        originalAirdate: "2026-01-15",
+        serviceSeasonNumber: 1,
+        serviceEpisodeNumber: 3,
+        episodeDataSourceUrl: "https://example.com/long-source",
+        seasonBoundarySourceUrl: "https://example.com/long-seasons",
+      },
+      {
+        realEpisodeNumber: 4,
+        serviceEpisodeCode: "S1E04",
+        episodeTitle: "Long Filler",
+        fillerBucket: "Yes",
+        canonFillerType: "Filler",
+        originalAirdate: "2026-01-22",
+        serviceSeasonNumber: 1,
+        serviceEpisodeNumber: 4,
+        episodeDataSourceUrl: "https://example.com/long-source",
+        seasonBoundarySourceUrl: "https://example.com/long-seasons",
+      },
+      {
+        realEpisodeNumber: 5,
+        serviceEpisodeCode: "S1E05",
+        episodeTitle: "Long Mixed Two",
+        fillerBucket: "Mixed",
+        canonFillerType: "Mixed Canon/Filler",
+        originalAirdate: "2026-01-29",
+        serviceSeasonNumber: 1,
+        serviceEpisodeNumber: 5,
+        episodeDataSourceUrl: "https://example.com/long-source",
+        seasonBoundarySourceUrl: "https://example.com/long-seasons",
+      },
+      {
+        realEpisodeNumber: 6,
+        serviceEpisodeCode: "S1E06",
+        episodeTitle: "Long Finale",
+        fillerBucket: "No",
+        canonFillerType: "Manga Canon",
+        originalAirdate: "2026-02-05",
+        serviceSeasonNumber: 1,
+        serviceEpisodeNumber: 6,
+        episodeDataSourceUrl: "https://example.com/long-source",
+        seasonBoundarySourceUrl: "https://example.com/long-seasons",
+      },
+    ],
+  });
 }
