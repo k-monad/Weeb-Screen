@@ -8,7 +8,7 @@ export type ShowPageOptions = {
 export function libraryPage(shows: ShowSummary[]): string {
   const body =
     shows.length === 0
-      ? `<section class="empty"><h1>No anime yet</h1><p>Import your first show in Settings/Admin.</p><a class="button" href="/admin">Admin</a></section>`
+      ? `<section class="empty"><h1>No anime yet</h1><p>Import your first show in Settings/Admin.</p><a class="btn btn--primary" href="/admin">Admin</a></section>`
       : `<section class="library">${shows.map(showCard).join("")}</section>`;
 
   return layout("Weeb-Screen", body);
@@ -35,7 +35,7 @@ export function showPage(detail: ShowDetail, next: NextEpisodeResult, options: S
 }
 
 export function notFoundPage(): string {
-  return layout("Not Found", `<main class="empty"><h1>Not found</h1><a class="button" href="/">Back to library</a></main>`);
+  return layout("Not Found", `<main class="empty"><h1>Not found</h1><a class="btn btn--primary" href="/">Back to library</a></main>`);
 }
 
 export function redirectPage(path: string): string {
@@ -143,21 +143,26 @@ function renderSeasonGroups(showSlug: string, episodes: EpisodeWithProgress[]): 
 }
 
 function episodeRow(showSlug: string, episode: EpisodeWithProgress, showCode: boolean): string {
-  return `<article class="episode-row${episode.watched ? " is-watched" : ""}" data-real="${episode.realEpisodeNumber}">
+  return `<article class="ep${episode.watched ? " is-watched" : ""}" data-real="${episode.realEpisodeNumber}">
     <span class="${badgeClass(episode.fillerBucket)}">${bucketLabel(episode.fillerBucket)}</span>
-    <div class="episode-main">
+    <div class="ep__main">
       <h3>${showCode ? `<span class="service-code">${escapeHtml(episode.serviceEpisodeCode)}</span> ` : ""}${escapeHtml(episode.episodeTitle)}</h3>
-      <p>Episode ${episode.realEpisodeNumber}${episode.originalAirdate ? ` &middot; ${escapeHtml(episode.originalAirdate)}` : ""}</p>
+      <p class="ep__meta">Episode ${episode.realEpisodeNumber}${episode.originalAirdate ? ` &middot; ${escapeHtml(episode.originalAirdate)}` : ""}</p>
     </div>
-    <form method="post" action="/shows/${escapeAttribute(showSlug)}/episodes/${episode.realEpisodeNumber}/watched" data-watch-form>
-      <input type="hidden" name="watched" value="${episode.watched ? "false" : "true"}">
-      <button type="submit">${episode.watched ? "Watched" : "Mark watched"}</button>
-    </form>
+    <div class="ep__actions">
+      ${episode.watched ? '<span class="watched-flag">&#10003; Watched</span>' : ""}
+      <form method="post" action="/shows/${escapeAttribute(showSlug)}/episodes/${episode.realEpisodeNumber}/watched" data-watch-form>
+        <input type="hidden" name="watched" value="${episode.watched ? "false" : "true"}">
+        <button type="submit" class="btn ${episode.watched ? "btn--quiet" : "btn--primary"} btn--sm">${episode.watched ? "Undo" : "Mark watched"}</button>
+      </form>
+    </div>
   </article>`;
 }
 
 function badgeClass(bucket: string): string {
-  return `badge badge-${bucket.toLowerCase()}`;
+  if (bucket === "No") return "badge badge--canon";
+  if (bucket === "Yes") return "badge badge--filler";
+  return "badge badge--mixed";
 }
 
 function bucketLabel(bucket: string): string {
@@ -185,50 +190,155 @@ function escapeAttribute(value: string): string {
 
 function css(): string {
   return `
-:root { color-scheme: light; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #f7f7f4; color: #1d211f; }
+:root {
+  color-scheme: light;
+  --bg:#f7f7f4;
+  --surface:#ffffff;
+  --surface-sunk:#f1f3ee;
+  --watched-tint:#f2f5f1;
+  --text:#1d211f;
+  --text-muted:#596159;
+  --border:#d9ddd6;
+  --border-strong:#aeb7af;
+  --primary:#25745b;
+  --primary-hover:#1d5a47;
+  --primary-soft:#e3f5ec;
+  --primary-text:#ffffff;
+  --focus:#0b5cab;
+  --badge-canon-bg:#e3f5ec;
+  --badge-canon-fg:#0d5d43;
+  --badge-mixed-bg:#fff0cc;
+  --badge-mixed-fg:#77520a;
+  --badge-filler-bg:#f8dddd;
+  --badge-filler-fg:#8a2424;
+  --track:#e4e8e2;
+  --space-1:4px;
+  --space-2:8px;
+  --space-3:12px;
+  --space-4:16px;
+  --space-5:24px;
+  --space-6:32px;
+  --radius-sm:6px;
+  --radius-md:8px;
+  --radius-lg:12px;
+  --radius-pill:999px;
+  --font-sans:Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --text-xs:0.82rem;
+  --text-sm:0.9rem;
+  --text-base:1rem;
+  --text-lg:1.15rem;
+  --text-h1:1.6rem;
+  --control-min:44px;
+}
 * { box-sizing: border-box; }
-body { margin: 0; }
+body { margin: 0; background: var(--bg); color: var(--text); font-family: var(--font-sans); }
 a { color: inherit; }
-button, select { font: inherit; }
+button, select, input { font: inherit; }
+
 .library, .show-shell { width: min(1040px, calc(100% - 24px)); margin: 0 auto; padding: 24px 0; }
-.show-card, .next-card, .controls, .episode-row, .season { background: #fff; border: 1px solid #d9ddd6; border-radius: 8px; }
-.show-card { display: flex; justify-content: space-between; gap: 16px; padding: 16px; margin-bottom: 12px; align-items: center; }
-.show-card h2, .show-header h1, .next-card h2, .episode-row h3 { margin: 0; letter-spacing: 0; }
-.show-card p, .show-header p, .next-card p, .episode-row p { color: #596159; margin: 4px 0 0; }
+.show-card, .next-card, .controls, .season, .ep { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-md); }
+.show-card { display: flex; justify-content: space-between; gap: var(--space-4); padding: var(--space-4); margin-bottom: var(--space-3); align-items: center; }
+.show-card h2, .show-header h1, .next-card h2, .ep__main h3 { margin: 0; letter-spacing: 0; }
+.show-card p, .show-header p, .next-card p, .ep__meta { color: var(--text-muted); margin: 4px 0 0; }
 .progress { min-width: 170px; }
-.progress span { display: block; color: #596159; font-size: 0.9rem; }
-.bar { height: 8px; background: #e4e8e2; border-radius: 999px; margin-top: 8px; overflow: hidden; }
-.bar i { display: block; height: 100%; background: #25745b; }
-.back-link { color: #596159; display: inline-block; margin-bottom: 8px; }
+.progress span { display: block; color: var(--text-muted); font-size: var(--text-sm); }
+.bar { height: 8px; background: var(--track); border-radius: var(--radius-pill); margin-top: var(--space-2); overflow: hidden; }
+.bar i { display: block; height: 100%; background: var(--primary); }
+.back-link { color: var(--text-muted); display: inline-block; margin-bottom: var(--space-2); text-decoration: none; }
+.back-link:hover { text-decoration: underline; }
 .show-header { padding: 20px 0 16px; }
+
+:where(a, button, select, input, summary, [role="radio"]):focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+.btn, .button {
+  min-height: var(--control-min);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: 0 14px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  line-height: 1;
+  cursor: pointer;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.btn:hover, .button:hover { background: var(--surface-sunk); }
+.btn--primary { background: var(--primary); border-color: var(--primary); color: var(--primary-text); font-weight: 600; }
+.btn--primary:hover { background: var(--primary-hover); }
+.btn--quiet { background: transparent; border-color: transparent; color: var(--text-muted); }
+.btn--quiet:hover { background: var(--surface-sunk); color: var(--text); }
+.btn--sm { min-height: var(--control-min); padding: 0 10px; font-size: var(--text-sm); }
+
 .next-card { display: flex; gap: 14px; align-items: center; padding: 16px; margin-bottom: 12px; }
 .next-card.is-done { display: block; }
-.controls { display: flex; gap: 10px; flex-wrap: wrap; padding: 12px; margin-bottom: 12px; align-items: center; }
+
+.controls {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+  padding: 12px;
+  margin-bottom: 14px;
+}
 .control-form { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
-.check { display: inline-flex; gap: 6px; align-items: center; }
+.check { min-height: var(--control-min); display: inline-flex; gap: 8px; align-items: center; padding: 0 12px; border: 1px solid var(--border-strong); border-radius: var(--radius-pill); background: var(--surface); }
 .toggle-row { margin: 0; }
-.apply-button { display: none; }
-button, select, .button { border: 1px solid #aeb7af; background: #f8faf7; border-radius: 6px; padding: 8px 10px; text-decoration: none; }
+.toggle-row button, .control-form select, .apply-button { min-height: var(--control-min); padding: 0 12px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); background: var(--surface); color: var(--text); }
+
 .episode-list { display: grid; gap: 8px; }
-.episode-row { display: grid; grid-template-columns: 82px 1fr auto; align-items: center; gap: 12px; padding: 12px; }
-.episode-main { min-width: 0; }
-.episode-main h3 { font-size: 1rem; overflow-wrap: anywhere; }
-.badge { display: inline-flex; justify-content: center; border-radius: 999px; padding: 5px 9px; font-size: 0.82rem; font-weight: 750; }
-.badge-no { background: #e3f5ec; color: #0d5d43; }
-.badge-mixed { background: #fff0cc; color: #77520a; }
-.badge-yes { background: #f8dddd; color: #8a2424; }
-.service-code { color: #596159; font-size: 0.9em; font-weight: 650; }
-.is-watched { opacity: 0.62; }
+.ep {
+  position: relative;
+  display: grid;
+  grid-template-columns: 84px 1fr auto;
+  align-items: center;
+  gap: 14px;
+  padding: 12px;
+}
+.ep__main { min-width: 0; }
+.ep__main h3 { font-size: var(--text-base); overflow-wrap: anywhere; }
+.ep__meta { font-size: var(--text-sm); }
+.ep__actions { display: flex; gap: var(--space-2); align-items: center; justify-content: flex-end; }
+
+.badge {
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+  border-radius: var(--radius-pill);
+  padding: 5px 9px;
+  font-size: var(--text-xs);
+  font-weight: 750;
+  justify-self: start;
+}
+.badge--canon { background: var(--badge-canon-bg); color: var(--badge-canon-fg); }
+.badge--mixed { background: var(--badge-mixed-bg); color: var(--badge-mixed-fg); }
+.badge--filler { background: var(--badge-filler-bg); color: var(--badge-filler-fg); }
+.service-code { color: var(--text-muted); font-size: 0.9em; font-weight: 650; }
+
+.ep.is-watched { background: var(--watched-tint); box-shadow: inset 3px 0 0 var(--primary); }
+.ep.is-watched .ep__main h3 { color: var(--text-muted); }
+.watched-flag { display: inline-flex; align-items: center; gap: 6px; color: var(--badge-canon-fg); font-weight: 700; font-size: var(--text-sm); }
+
 .season { padding: 8px; }
 .season summary { cursor: pointer; font-weight: 750; padding: 6px 4px 12px; }
-.season summary span { color: #596159; font-weight: 500; margin-left: 8px; }
+.season summary span { color: var(--text-muted); font-weight: 500; margin-left: 8px; }
 .empty { width: min(640px, calc(100% - 24px)); margin: 15vh auto; text-align: center; }
+
 @media (max-width: 680px) {
-  .show-card, .next-card, .episode-row { grid-template-columns: 1fr; display: grid; }
+  .show-card, .next-card, .ep { grid-template-columns: 1fr; display: grid; }
   .progress { min-width: 0; width: 100%; }
-  .badge { justify-self: start; }
   .controls, .control-form { display: grid; width: 100%; }
-  button, select { width: 100%; }
+  .toggle-row, .toggle-row button, .control-form select, .apply-button { width: 100%; }
+  .ep__actions { justify-content: stretch; }
+  .ep__actions .btn { flex: 1; }
 }
 `;
 }
