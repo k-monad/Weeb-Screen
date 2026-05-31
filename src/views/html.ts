@@ -127,30 +127,42 @@ function controls(detail: ShowDetail, options: ShowPageOptions): string {
   const filterAction = `/shows/${escapeAttribute(detail.show.slug)}`;
   return `<section class="controls">
     <form method="get" action="${filterAction}" class="control-form" data-filter-form>
-      <label>Filter
-        <select name="bucket">
-          ${selectOption("All", "All", options.bucket)}
-          ${selectOption("No", "Canon", options.bucket)}
-          ${selectOption("Mixed", "Mixed", options.bucket)}
-          ${selectOption("Yes", "Filler", options.bucket)}
-        </select>
+      <fieldset class="filter-group">
+        <legend class="controls__label">Filter</legend>
+        <div class="seg" role="radiogroup" aria-label="Filter by filler bucket">
+          ${segmentOption("All", "All", options.bucket)}
+          ${segmentOption("No", "Canon", options.bucket)}
+          ${segmentOption("Mixed", "Mixed", options.bucket)}
+          ${segmentOption("Yes", "Filler", options.bucket)}
+        </div>
+      </fieldset>
+      <label class="chip" aria-pressed="${options.unwatched ? "true" : "false"}">
+        <input type="checkbox" name="unwatched" value="1"${options.unwatched ? " checked" : ""}>
+        Unwatched only
       </label>
-      <label class="check"><input type="checkbox" name="unwatched" value="1"${options.unwatched ? " checked" : ""}> Unwatched</label>
-      <button type="submit" class="apply-button">Apply</button>
+      <button type="submit" class="btn btn--primary apply-button">Apply</button>
     </form>
-    <form method="post" action="/shows/${escapeAttribute(detail.show.slug)}/preferences" class="toggle-row" data-preference-form>
+    <div class="controls__spacer"></div>
+    <form method="post" action="/shows/${escapeAttribute(detail.show.slug)}/preferences" data-preference-form data-live-success="${detail.preferences.skipFiller ? "Filler shown." : "Filler hidden."}">
       <input type="hidden" name="skip_filler" value="${detail.preferences.skipFiller ? "false" : "true"}">
-      <button type="submit" aria-pressed="${detail.preferences.skipFiller ? "true" : "false"}">${detail.preferences.skipFiller ? "Filler hidden" : "Hide filler"}</button>
+      <button type="submit" class="switch" aria-pressed="${detail.preferences.skipFiller ? "true" : "false"}">
+        <span class="switch__track" aria-hidden="true"><span class="switch__thumb"></span></span> Hide filler
+      </button>
     </form>
-    <form method="post" action="/shows/${escapeAttribute(detail.show.slug)}/preferences" class="toggle-row" data-preference-form>
+    <form method="post" action="/shows/${escapeAttribute(detail.show.slug)}/preferences" data-preference-form data-live-success="${detail.preferences.seasonDetails ? "Season details off." : "Season details on."}">
       <input type="hidden" name="season_details" value="${detail.preferences.seasonDetails ? "false" : "true"}">
-      <button type="submit">Season details ${detail.preferences.seasonDetails ? "on" : "off"}</button>
+      <button type="submit" class="switch" aria-pressed="${detail.preferences.seasonDetails ? "true" : "false"}">
+        <span class="switch__track" aria-hidden="true"><span class="switch__thumb"></span></span> Season details
+      </button>
     </form>
   </section>`;
 }
 
-function selectOption(value: string, label: string, selected: string): string {
-  return `<option value="${escapeAttribute(value)}"${value === selected ? " selected" : ""}>${escapeHtml(label)}</option>`;
+function segmentOption(value: string, label: string, selected: string): string {
+  return `<label class="seg__item">
+    <input type="radio" name="bucket" value="${escapeAttribute(value)}"${value === selected ? " checked" : ""}>
+    <span class="seg__btn">${escapeHtml(label)}</span>
+  </label>`;
 }
 
 function renderSeasonGroups(showSlug: string, episodes: EpisodeWithProgress[], nextRealEpisodeNumber: number | null): string {
@@ -364,10 +376,73 @@ button, select, input { font: inherit; }
   padding: 12px;
   margin-bottom: 14px;
 }
-.control-form { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
-.check { min-height: var(--control-min); display: inline-flex; gap: 8px; align-items: center; padding: 0 12px; border: 1px solid var(--border-strong); border-radius: var(--radius-pill); background: var(--surface); }
-.toggle-row { margin: 0; }
-.toggle-row button, .control-form select, .apply-button { min-height: var(--control-min); padding: 0 12px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); background: var(--surface); color: var(--text); }
+.control-form { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; flex: 1; }
+.filter-group { margin: 0; padding: 0; border: 0; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.controls__label { color: var(--text-muted); font-size: var(--text-sm); padding: 0; margin: 0; }
+.controls__spacer { flex: 1; }
+.apply-button { min-height: var(--control-min); }
+.js .apply-button { display: none; }
+
+.seg { display: inline-flex; border: 1px solid var(--border-strong); border-radius: var(--radius-md); overflow: hidden; }
+.seg__item { position: relative; display: inline-flex; }
+.seg__item input { position: absolute; inset: 0; opacity: 0; pointer-events: none; }
+.seg__btn {
+  min-height: var(--control-min);
+  padding: 0 14px;
+  border-right: 1px solid var(--border);
+  display: inline-flex;
+  align-items: center;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+.seg__item:last-child .seg__btn { border-right: 0; }
+.seg__item input:checked + .seg__btn { background: var(--primary); color: var(--primary-text); font-weight: 600; }
+
+.chip {
+  min-height: var(--control-min);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+.chip input { position: absolute; opacity: 0; width: 1px; height: 1px; pointer-events: none; }
+.chip[aria-pressed="true"], .chip:has(input:checked) { background: var(--primary-soft); border-color: var(--primary); color: var(--badge-canon-fg); font-weight: 600; }
+
+.switch {
+  min-height: var(--control-min);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+.switch__track { width: 34px; height: 20px; border-radius: 999px; background: #c7cfc6; position: relative; flex: none; }
+.switch__thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+}
+.switch[aria-pressed="true"] { border-color: var(--primary); background: var(--primary-soft); }
+.switch[aria-pressed="true"] .switch__track { background: var(--primary); }
+.switch[aria-pressed="true"] .switch__thumb { left: 16px; }
 
 .episode-list { display: grid; gap: 8px; }
 .ep {
@@ -426,7 +501,6 @@ button, select, input { font: inherit; }
   list-style: none;
 }
 .season > summary::-webkit-details-marker { display: none; }
-.season > summary .caret { transition: transform 0.15s; }
 .season[open] > summary .caret { transform: rotate(90deg); }
 .season__progress { color: var(--text-muted); font-weight: 500; }
 .season__bulk { margin-left: auto; display: flex; gap: var(--space-1); }
@@ -434,15 +508,27 @@ button, select, input { font: inherit; }
 .empty-state { margin: 0; padding: var(--space-4); color: var(--text-muted); background: var(--surface); border: 1px dashed var(--border-strong); border-radius: var(--radius-md); }
 .empty { width: min(640px, calc(100% - 24px)); margin: 15vh auto; text-align: center; }
 
+@media (prefers-reduced-motion: no-preference) {
+  .btn { transition: background 0.12s ease; }
+  .switch__track, .switch__thumb { transition: all 0.15s ease; }
+  .season > summary .caret { transition: transform 0.15s ease; }
+}
+
 @media (max-width: 680px) {
   .show-card, .next-card, .ep { grid-template-columns: 1fr; display: grid; }
   .progress { min-width: 0; width: 100%; }
   .bulk { width: 100%; flex-wrap: wrap; }
   .bulk form { flex: 1; min-width: 200px; }
-  .controls, .control-form { display: grid; width: 100%; }
-  .toggle-row, .toggle-row button, .control-form select, .apply-button { width: 100%; }
+  .controls { gap: 8px; }
+  .control-form { display: grid; width: 100%; }
+  .filter-group { display: grid; width: 100%; }
+  .seg, .seg__item, .seg__btn, .switch, .chip, .apply-button { width: 100%; }
+  .seg { flex-wrap: wrap; }
+  .controls__spacer { display: none; }
+  .show-header__top { align-items: flex-start; }
   .ep__actions { justify-content: stretch; }
   .ep__actions .btn { flex: 1; }
+  .next-card { flex-wrap: wrap; }
   .next-card__actions { width: 100%; }
   .next-card__actions .btn { flex: 1; }
 }
@@ -452,13 +538,49 @@ button, select, input { font: inherit; }
 function clientScript(): string {
   return `
 (() => {
+  document.body.classList.add("js");
   const shellSelector = ".show-shell";
+  const liveRegionSelector = "[data-live-region]";
+  const saveFailureMessage = "Couldn't save - try again.";
+  const filterFailureMessage = "Couldn't apply filter - try again.";
 
   function currentShell() {
     return document.querySelector(shellSelector);
   }
 
-  async function refreshShow(url = window.location.href, push = false) {
+  function announce(message) {
+    if (!message) return;
+    const liveRegion = document.querySelector(liveRegionSelector);
+    if (!liveRegion) return;
+    liveRegion.textContent = "";
+    liveRegion.textContent = message;
+  }
+
+  function successMessage(form, fallback, submitEvent) {
+    const submitter = submitEvent && submitEvent.submitter instanceof HTMLElement ? submitEvent.submitter : null;
+    return (
+      (submitter ? submitter.getAttribute("data-live-success") : null) ||
+      form.getAttribute("data-live-success") ||
+      fallback
+    );
+  }
+
+  function filterAnnouncement(form) {
+    const data = new FormData(form);
+    const bucket = String(data.get("bucket") || "All");
+    const label =
+      bucket === "No"
+        ? "Canon"
+        : bucket === "Mixed"
+          ? "Mixed"
+          : bucket === "Yes"
+            ? "Filler"
+            : "All";
+    const unwatched = data.get("unwatched") === "1";
+    return unwatched ? "Filter updated: " + label + ", unwatched only." : "Filter updated: " + label + ".";
+  }
+
+  async function refreshShow(url = window.location.href, push = false, message = "") {
     const shell = currentShell();
     if (!shell) return;
 
@@ -473,6 +595,7 @@ function clientScript(): string {
     shell.replaceWith(nextShell);
     if (push) window.history.pushState({}, "", url);
     bindShowControls();
+    announce(message);
   }
 
   function filterUrl(form) {
@@ -492,34 +615,50 @@ function clientScript(): string {
         if (confirmText && !window.confirm(confirmText)) {
           return;
         }
-        await fetch(form.action, {
-          method: "POST",
-          body: new URLSearchParams(new FormData(form)),
-          headers: { Accept: "application/json" },
-        });
-        await refreshShow();
+        try {
+          const response = await fetch(form.action, {
+            method: "POST",
+            body: new URLSearchParams(new FormData(form)),
+            headers: { Accept: "application/json" },
+          });
+          if (!response.ok) throw new Error("Save failed");
+          await refreshShow(window.location.href, false, successMessage(form, "Saved.", event));
+        } catch {
+          announce(saveFailureMessage);
+        }
       });
     });
 
     document.querySelectorAll("[data-preference-form]").forEach((form) => {
       form.addEventListener("submit", async (event) => {
         event.preventDefault();
-        await fetch(form.action, {
-          method: "POST",
-          body: new URLSearchParams(new FormData(form)),
-          headers: { Accept: "application/json" },
-        });
-        await refreshShow();
+        try {
+          const response = await fetch(form.action, {
+            method: "POST",
+            body: new URLSearchParams(new FormData(form)),
+            headers: { Accept: "application/json" },
+          });
+          if (!response.ok) throw new Error("Preference failed");
+          await refreshShow(window.location.href, false, successMessage(form, "Preferences updated.", event));
+        } catch {
+          announce(saveFailureMessage);
+        }
       });
     });
 
     document.querySelectorAll("[data-filter-form]").forEach((form) => {
-      const applyFilter = async () => refreshShow(filterUrl(form).toString(), true);
+      const applyFilter = async () => {
+        try {
+          await refreshShow(filterUrl(form).toString(), true, filterAnnouncement(form));
+        } catch {
+          announce(filterFailureMessage);
+        }
+      };
       form.addEventListener("submit", (event) => {
         event.preventDefault();
         void applyFilter();
       });
-      form.querySelectorAll("select, input").forEach((input) => {
+      form.querySelectorAll("input, select").forEach((input) => {
         input.addEventListener("change", () => void applyFilter());
       });
     });

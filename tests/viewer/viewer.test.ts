@@ -114,9 +114,79 @@ describe("viewer UI and progress semantics", () => {
       expect(JSON.parse(hide.body)).toEqual({ ok: true });
 
       const hidden = await app.inject({ method: "GET", url: "/shows/demo-anime" });
-      expect(hidden.body).toContain("Filler hidden");
+      expect(hidden.body).toMatch(
+        /<button[^>]*class="switch"[^>]*aria-pressed="true"[^>]*>[\s\S]*?Hide filler[\s\S]*?<\/button>/,
+      );
       expect(hidden.body).not.toContain("Filler Beach");
       expect(extractRealOrder(hidden.body)).toEqual([1, 3, 5]);
+    } finally {
+      await app.close();
+      cleanup();
+    }
+  });
+
+  it("surfaces live watch actions for play-next, up-to, season, and full-show bulk", async () => {
+    const { db, cleanup } = createTempDatabase();
+    const app = await buildServer(db);
+    try {
+      seedDemoShow(db);
+
+      const initial = await app.inject({ method: "GET", url: "/shows/demo-anime" });
+      expect(extractNextCard(initial.body)).toContain('action="/shows/demo-anime/episodes/1/watched"');
+      expect(initial.body).toContain('action="/shows/demo-anime/watched/up-to/3"');
+      expect(initial.body).toContain('action="/shows/demo-anime/watched/up-to/5"');
+      expect(initial.body).toContain('action="/shows/demo-anime/watched/up-to/1"');
+
+      await app.inject({
+        method: "POST",
+        url: "/shows/demo-anime/episodes/1/watched",
+        headers: { "content-type": "application/x-www-form-urlencoded", accept: "application/json" },
+        payload: "watched=true",
+      });
+      const afterPlayNext = await app.inject({ method: "GET", url: "/shows/demo-anime" });
+      expect(extractNextCard(afterPlayNext.body)).toContain('action="/shows/demo-anime/episodes/2/watched"');
+      expect(extractNextCard(afterPlayNext.body)).toContain('href="#ep-2"');
+
+      await app.inject({
+        method: "POST",
+        url: "/shows/demo-anime/watched/up-to/3",
+        headers: { "content-type": "application/x-www-form-urlencoded", accept: "application/json" },
+        payload: "watched=true",
+      });
+      expect(getNextEpisode(db, "demo-anime", false)?.next?.realEpisodeNumber).toBe(4);
+
+      await app.inject({
+        method: "POST",
+        url: "/shows/demo-anime/preferences",
+        payload: "season_details=true",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+      });
+      const seasonView = await app.inject({ method: "GET", url: "/shows/demo-anime" });
+      expect(seasonView.body).toContain('action="/shows/demo-anime/seasons/2/watched"');
+
+      await app.inject({
+        method: "POST",
+        url: "/shows/demo-anime/seasons/2/watched",
+        headers: { "content-type": "application/x-www-form-urlencoded", accept: "application/json" },
+        payload: "watched=true",
+      });
+      expect(getNextEpisode(db, "demo-anime", false)?.next).toBeNull();
+
+      await app.inject({
+        method: "POST",
+        url: "/shows/demo-anime/watched/up-to/1",
+        headers: { "content-type": "application/x-www-form-urlencoded", accept: "application/json" },
+        payload: "watched=false",
+      });
+      expect(getNextEpisode(db, "demo-anime", false)?.next?.realEpisodeNumber).toBe(1);
+
+      await app.inject({
+        method: "POST",
+        url: "/shows/demo-anime/watched/up-to/5",
+        headers: { "content-type": "application/x-www-form-urlencoded", accept: "application/json" },
+        payload: "watched=true",
+      });
+      expect(getNextEpisode(db, "demo-anime", false)?.next).toBeNull();
     } finally {
       await app.close();
       cleanup();
@@ -145,4 +215,8 @@ describe("viewer UI and progress semantics", () => {
 
 function extractRealOrder(html: string): number[] {
   return [...html.matchAll(/data-real="(\d+)"/g)].map((match) => Number.parseInt(match[1] ?? "", 10));
+}
+
+function extractNextCard(html: string): string {
+  return html.match(/<section class="next-card[\s\S]*?<\/section>/)?.[0] ?? "";
 }
