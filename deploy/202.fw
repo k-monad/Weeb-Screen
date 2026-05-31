@@ -1,0 +1,11 @@
+[OPTIONS]
+enable: 1
+policy_in: DROP
+policy_out: ACCEPT
+
+[RULES]
+IN ACCEPT -source 100.64.0.0/10
+IN ACCEPT -source 192.168.0.0/16 -p tcp -dport 80
+IN ACCEPT -source 192.168.0.0/16 -p tcp -dport 443
+IN ACCEPT -p icmp
+

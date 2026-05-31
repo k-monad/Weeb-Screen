@@ -1,0 +1,20 @@
+#!/bin/sh
+set -eu
+
+DOMAIN="${DOMAIN:-weeb-screen.egret-chimaera.ts.net}"
+TLS_DIR="${TLS_DIR:-/etc/weebscreen/tls}"
+APP_DIR="${APP_DIR:-/opt/weeb-screen}"
+ALERT_TO="${ALERT_TO:-root}"
+
+alert_failure() {
+  printf 'Subject: [weeb-screen] cert renew failed\n\nCert renewal failed on %s at %s UTC for %s.\n' "$(hostname)" "$(date -u)" "$DOMAIN" | msmtp "$ALERT_TO" || true
+}
+
+trap alert_failure ERR
+
+mkdir -p "$TLS_DIR"
+tailscale cert --cert-file "${TLS_DIR}/${DOMAIN}.crt" --key-file "${TLS_DIR}/${DOMAIN}.key" "$DOMAIN"
+chmod 600 "${TLS_DIR}/${DOMAIN}.key"
+cd "$APP_DIR"
+sudo docker compose exec -T caddy caddy reload --config /etc/caddy/Caddyfile
+

@@ -1,0 +1,13 @@
+#!/bin/sh
+set -eu
+
+DOMAIN="${DOMAIN:-weeb-screen.egret-chimaera.ts.net}"
+CERT="${CERT:-/etc/weebscreen/tls/${DOMAIN}.crt}"
+ALERT_TO="${ALERT_TO:-root}"
+WARN_SECONDS="${WARN_SECONDS:-1209600}"
+
+if ! openssl x509 -checkend "$WARN_SECONDS" -noout -in "$CERT" >/dev/null 2>&1; then
+  printf 'Subject: [weeb-screen] cert expiring soon\n\nCertificate %s on %s expires within %s seconds.\n' "$CERT" "$(hostname)" "$WARN_SECONDS" | msmtp "$ALERT_TO"
+  exit 1
+fi
+
