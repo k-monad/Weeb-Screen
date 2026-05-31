@@ -17,6 +17,25 @@ export type ShowDetailOptions = {
   unwatched?: boolean;
 };
 
+export type ImportJobStatus = "preview" | "committed" | "failed";
+
+export type ImportJob = {
+  id: number;
+  showId: number | null;
+  filename: string | null;
+  format: "xlsx" | "csv" | null;
+  showSlug: string | null;
+  status: ImportJobStatus;
+  rowsTotal: number | null;
+  rowsImported: number | null;
+  rowsUpdated: number | null;
+  rowsSkipped: number | null;
+  countsJson: string | null;
+  errorText: string | null;
+  createdAt: string;
+  finishedAt: string | null;
+};
+
 type EpisodeRow = {
   id: number;
   show_id: number;
@@ -47,6 +66,23 @@ type SummaryRow = {
   canon_total: number | null;
   all_watched: number | null;
   all_total: number | null;
+};
+
+type ImportJobRow = {
+  id: number;
+  show_id: number | null;
+  filename: string | null;
+  format: "xlsx" | "csv" | null;
+  show_slug: string | null;
+  status: ImportJobStatus;
+  rows_total: number | null;
+  rows_imported: number | null;
+  rows_updated: number | null;
+  rows_skipped: number | null;
+  counts_json: string | null;
+  error_text: string | null;
+  created_at: string;
+  finished_at: string | null;
 };
 
 export function listShows(db: WeebScreenDatabase): ShowSummary[] {
@@ -404,6 +440,76 @@ export function upsertShowImport(db: WeebScreenDatabase, preview: ImportPreview)
   return { showId, inserted, updated };
 }
 
+export function createPreviewImportJob(db: WeebScreenDatabase, preview: ImportPreview, filename: string): ImportJob {
+  const now = nowIso();
+  const result = db
+    .prepare(
+      `INSERT INTO import_jobs(
+        filename,
+        format,
+        show_slug,
+        status,
+        rows_total,
+        rows_imported,
+        rows_updated,
+        rows_skipped,
+        counts_json,
+        error_text,
+        created_at
+      )
+      VALUES (?, ?, ?, 'preview', ?, 0, 0, 0, ?, ?, ?)`,
+    )
+    .run(
+      filename,
+      preview.format,
+      preview.show.slug,
+      preview.episodes.length,
+      JSON.stringify(preview.counts),
+      formatIssueSummary(preview),
+      now,
+    );
+
+  return getImportJob(db, result.lastInsertRowid as number) as ImportJob;
+}
+
+export function markImportJobCommitted(
+  db: WeebScreenDatabase,
+  jobId: number,
+  showId: number,
+  rowsImported: number,
+  rowsUpdated: number,
+): void {
+  db.prepare(
+    `UPDATE import_jobs
+     SET show_id = ?,
+         status = 'committed',
+         rows_imported = ?,
+         rows_updated = ?,
+         finished_at = ?
+     WHERE id = ?`,
+  ).run(showId, rowsImported, rowsUpdated, nowIso(), jobId);
+}
+
+export function markImportJobFailed(db: WeebScreenDatabase, jobId: number, errorText: string): void {
+  db.prepare(
+    `UPDATE import_jobs
+     SET status = 'failed',
+         error_text = ?,
+         finished_at = ?
+     WHERE id = ?`,
+  ).run(errorText, nowIso(), jobId);
+}
+
+export function getImportJob(db: WeebScreenDatabase, jobId: number): ImportJob | null {
+  const row = db.prepare("SELECT * FROM import_jobs WHERE id = ?").get(jobId) as ImportJobRow | undefined;
+  return row ? mapImportJob(row) : null;
+}
+
+export function listImportJobs(db: WeebScreenDatabase): ImportJob[] {
+  const rows = db.prepare("SELECT * FROM import_jobs ORDER BY created_at DESC, id DESC LIMIT 50").all() as ImportJobRow[];
+  return rows.map(mapImportJob);
+}
+
 type RunnableStatement = {
   run: (...params: unknown[]) => unknown;
 };
@@ -424,6 +530,21 @@ function bindInsertEpisode(statement: RunnableStatement, showId: number, episode
     now,
     now,
   );
+}
+
+function formatIssueSummary(preview: ImportPreview): string | null {
+  const errors = preview.issues.filter((issue) => issue.level === "error");
+  if (errors.length === 0) {
+    return null;
+  }
+
+  return errors
+    .slice(0, 20)
+    .map((issue) => {
+      const place = issue.row ? `row ${issue.row}${issue.column ? ` ${issue.column}` : ""}` : issue.column ?? "file";
+      return `${place}: ${issue.message}`;
+    })
+    .join("\n");
 }
 
 function bindUpdateEpisode(statement: RunnableStatement, episode: EpisodeImportRow, episodeId: number, now: string): void {
@@ -536,6 +657,25 @@ function mapSummary(row: SummaryRow): ProgressSummary {
     canonTotal: row.canon_total ?? 0,
     allWatched: row.all_watched ?? 0,
     allTotal: row.all_total ?? 0,
+  };
+}
+
+function mapImportJob(row: ImportJobRow): ImportJob {
+  return {
+    id: row.id,
+    showId: row.show_id,
+    filename: row.filename,
+    format: row.format,
+    showSlug: row.show_slug,
+    status: row.status,
+    rowsTotal: row.rows_total,
+    rowsImported: row.rows_imported,
+    rowsUpdated: row.rows_updated,
+    rowsSkipped: row.rows_skipped,
+    countsJson: row.counts_json,
+    errorText: row.error_text,
+    createdAt: row.created_at,
+    finishedAt: row.finished_at,
   };
 }
 
