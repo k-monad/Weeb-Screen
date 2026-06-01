@@ -43,6 +43,9 @@ describe("viewer UI and progress semantics", () => {
       expect(flat.body).toContain("Filler Beach");
       expect(flat.body).toContain('aria-label="Canon: 0 of 2 watched"');
       expect(flat.body).toContain('aria-label="All: 0 of 5 watched"');
+      expect(flat.body).toContain('<p class="controls__label">View</p>');
+      expect(flat.body).toMatch(/<label class="chip">[\s\S]*?Unwatched only[\s\S]*?<\/label>/);
+      expect(flat.body).not.toMatch(/<label class="chip"[^>]*aria-pressed=/);
       expect(flat.body).not.toContain("S1E01");
       expect(flat.body).not.toContain("https://example.com/source");
 
@@ -142,6 +145,7 @@ describe("viewer UI and progress semantics", () => {
       expect(initial.body).toContain('<button type="submit" class="btn btn--secondary">Unwatch all</button>');
       expect(initial.body).toContain('data-undo-action="/shows/demo-anime/watched/up-to/1"');
       expect(initial.body).toContain('data-undo-action="/shows/demo-anime/watched/up-to/5"');
+      expect(extractEpisodeRow(initial.body, 1)).toContain('class="btn btn--secondary btn--sm">Mark watched</button>');
 
       await app.inject({
         method: "POST",
@@ -271,6 +275,11 @@ function extractRealOrder(html: string): number[] {
 
 function extractNextCard(html: string): string {
   return html.match(/<section class="next-card[\s\S]*?<\/section>/)?.[0] ?? "";
+}
+
+function extractEpisodeRow(html: string, realEpisodeNumber: number): string {
+  const escapedReal = String(realEpisodeNumber).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return html.match(new RegExp(`<article class="ep[^"]*" id="ep-${escapedReal}"[\\s\\S]*?<\\/article>`))?.[0] ?? "";
 }
 
 function extractFormsByAction(html: string, action: string): string[] {

@@ -161,25 +161,28 @@ function controls(detail: ShowDetail, options: ShowPageOptions): string {
           ${segmentOption("Yes", "Filler", options.bucket)}
         </div>
       </fieldset>
-      <label class="chip" aria-pressed="${options.unwatched ? "true" : "false"}">
+      <label class="chip">
         <input type="checkbox" name="unwatched" value="1"${options.unwatched ? " checked" : ""}>
         Unwatched only
       </label>
       <button type="submit" class="btn btn--primary apply-button">Apply</button>
     </form>
     <div class="controls__spacer"></div>
-    <form method="post" action="/shows/${escapeAttribute(detail.show.slug)}/preferences" data-preference-form data-live-success="${detail.preferences.skipFiller ? "Filler shown." : "Filler hidden."}">
-      <input type="hidden" name="skip_filler" value="${detail.preferences.skipFiller ? "false" : "true"}">
-      <button type="submit" class="switch" aria-pressed="${detail.preferences.skipFiller ? "true" : "false"}">
-        <span class="switch__track" aria-hidden="true"><span class="switch__thumb"></span></span> Hide filler
-      </button>
-    </form>
-    <form method="post" action="/shows/${escapeAttribute(detail.show.slug)}/preferences" data-preference-form data-live-success="${detail.preferences.seasonDetails ? "Season details off." : "Season details on."}">
-      <input type="hidden" name="season_details" value="${detail.preferences.seasonDetails ? "false" : "true"}">
-      <button type="submit" class="switch" aria-pressed="${detail.preferences.seasonDetails ? "true" : "false"}">
-        <span class="switch__track" aria-hidden="true"><span class="switch__thumb"></span></span> Season details
-      </button>
-    </form>
+    <section class="view-group" aria-label="View preferences">
+      <p class="controls__label">View</p>
+      <form method="post" action="/shows/${escapeAttribute(detail.show.slug)}/preferences" data-preference-form data-live-success="${detail.preferences.skipFiller ? "Filler shown." : "Filler hidden."}">
+        <input type="hidden" name="skip_filler" value="${detail.preferences.skipFiller ? "false" : "true"}">
+        <button type="submit" class="switch" aria-pressed="${detail.preferences.skipFiller ? "true" : "false"}">
+          <span class="switch__track" aria-hidden="true"><span class="switch__thumb"></span></span> Hide filler
+        </button>
+      </form>
+      <form method="post" action="/shows/${escapeAttribute(detail.show.slug)}/preferences" data-preference-form data-live-success="${detail.preferences.seasonDetails ? "Season details off." : "Season details on."}">
+        <input type="hidden" name="season_details" value="${detail.preferences.seasonDetails ? "false" : "true"}">
+        <button type="submit" class="switch" aria-pressed="${detail.preferences.seasonDetails ? "true" : "false"}">
+          <span class="switch__track" aria-hidden="true"><span class="switch__thumb"></span></span> Season details
+        </button>
+      </form>
+    </section>
   </section>`;
 }
 
@@ -231,6 +234,7 @@ function episodeRow(showSlug: string, episode: EpisodeWithProgress, showCode: bo
   const upToConfirm = episode.realEpisodeNumber > 5
     ? ` data-confirm="Mark all ${episode.realEpisodeNumber} episodes up to here watched?"`
     : "";
+  const markButtonClass = isNext ? "btn btn--secondary btn--sm" : "btn btn--primary btn--sm";
   return `<article class="ep${episode.watched ? " is-watched" : ""}${isNext ? " is-next" : ""}" id="ep-${episode.realEpisodeNumber}" data-real="${episode.realEpisodeNumber}">
     <span class="${badgeClass(episode.fillerBucket)}">${bucketLabel(episode.fillerBucket)}</span>
     <div class="ep__main">
@@ -247,7 +251,7 @@ function episodeRow(showSlug: string, episode: EpisodeWithProgress, showCode: bo
       </form>`
           : `<form method="post" action="/shows/${escapeAttribute(showSlug)}/episodes/${episode.realEpisodeNumber}/watched" data-watch-form data-live-success="Marked ${escapeAttribute(episodeLabel)} watched.">
         <input type="hidden" name="watched" value="true">
-        <button type="submit" class="btn btn--primary btn--sm">Mark watched</button>
+        <button type="submit" class="${markButtonClass}">Mark watched</button>
       </form>
       <form method="post" action="/shows/${escapeAttribute(showSlug)}/watched/up-to/${episode.realEpisodeNumber}" data-watch-form data-live-success="Marked episodes up to ${episode.realEpisodeNumber} watched."${upToConfirm}>
         <input type="hidden" name="watched" value="true">
@@ -417,6 +421,15 @@ button, select, input { font: inherit; }
 .filter-group { margin: 0; padding: 0; border: 0; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 .controls__label { color: var(--text-muted); font-size: var(--text-sm); padding: 0; margin: 0; }
 .controls__spacer { flex: 1; }
+.view-group {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  border-left: 1px solid var(--border);
+  padding-left: var(--space-3);
+}
+.view-group form { margin: 0; }
 .apply-button { min-height: var(--control-min); }
 .js .apply-button { display: none; }
 
@@ -451,7 +464,7 @@ button, select, input { font: inherit; }
   cursor: pointer;
 }
 .chip input { position: absolute; opacity: 0; width: 1px; height: 1px; pointer-events: none; }
-.chip[aria-pressed="true"], .chip:has(input:checked) { background: var(--primary-soft); border-color: var(--primary); color: var(--badge-canon-fg); font-weight: 600; }
+.chip:has(input:checked) { background: var(--primary-soft); border-color: var(--primary); color: var(--badge-canon-fg); font-weight: 600; }
 
 .switch {
   min-height: var(--control-min);
@@ -595,6 +608,11 @@ button, select, input { font: inherit; }
   .seg, .seg__item, .seg__btn, .switch, .chip, .apply-button { width: 100%; }
   .seg { flex-wrap: wrap; }
   .controls__spacer { display: none; }
+  .view-group {
+    width: 100%;
+    border-left: 0;
+    padding-left: 0;
+  }
   .show-header__top { align-items: flex-start; }
   .ep__actions { justify-content: stretch; }
   .ep__actions .btn { flex: 1; }
