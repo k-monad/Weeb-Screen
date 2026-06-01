@@ -1,5 +1,6 @@
 .git
 coverage
+archive
 data
 dist
 node_modules
@@ -7,4 +8,3 @@ node_modules
 *.sqlite-shm
 *.sqlite-wal
 .env
-

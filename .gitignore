@@ -2,6 +2,7 @@ node_modules/
 dist/
 coverage/
 .vitest/
+archive/
 
 data/
 *.sqlite
@@ -11,4 +12,3 @@ data/
 .env
 .env.*
 !.env.example
-
