@@ -67,6 +67,25 @@ describe("viewer UI and progress semantics", () => {
     }
   });
 
+  it("renders episode rows for the requested show when multiple shows exist", async () => {
+    const { db, cleanup } = createTempDatabase();
+    const app = await buildServer(db);
+    try {
+      seedDemoShow(db);
+      seedSecondShow(db);
+
+      const second = await app.inject({ method: "GET", url: "/shows/second-anime" });
+      expect(second.statusCode).toBe(200);
+      const firstRow = extractEpisodeRow(second.body, 1);
+      expect(firstRow).toContain("Second Premiere");
+      expect(firstRow).not.toContain("Start");
+      expect(second.body).not.toContain("Filler Beach");
+    } finally {
+      await app.close();
+      cleanup();
+    }
+  });
+
   it("keeps filters independent of display mode", async () => {
     const { db, cleanup } = createTempDatabase();
     const app = await buildServer(db);
@@ -384,6 +403,46 @@ function seedLongDemoShow(db: WeebScreenDatabase): void {
         serviceEpisodeNumber: 6,
         episodeDataSourceUrl: "https://example.com/long-source",
         seasonBoundarySourceUrl: "https://example.com/long-seasons",
+      },
+    ],
+  });
+}
+
+function seedSecondShow(db: WeebScreenDatabase): void {
+  upsertShowImport(db, {
+    format: "csv",
+    show: {
+      title: "Second Anime",
+      slug: "second-anime",
+      serviceName: "ExampleTV",
+      notes: null,
+      seasonBoundarySourceUrl: null,
+    },
+    counts: {
+      total: 1,
+      seasons: 1,
+      fillerBuckets: {
+        No: 1,
+        Mixed: 0,
+        Yes: 0,
+      },
+      canonFillerTypes: {
+        "Manga Canon": 1,
+      },
+    },
+    issues: [],
+    episodes: [
+      {
+        realEpisodeNumber: 1,
+        serviceEpisodeCode: "S1E01",
+        episodeTitle: "Second Premiere",
+        fillerBucket: "No",
+        canonFillerType: "Manga Canon",
+        originalAirdate: "2026-03-01",
+        serviceSeasonNumber: 1,
+        serviceEpisodeNumber: 1,
+        episodeDataSourceUrl: "https://example.com/second-source",
+        seasonBoundarySourceUrl: "https://example.com/second-seasons",
       },
     ],
   });

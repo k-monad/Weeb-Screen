@@ -14,7 +14,7 @@ export function adminPage(jobs: ImportJob[], message?: string): string {
           <label>Show title <input name="show_title" value="Naruto Shippuden" required></label>
           <label>Show slug <input name="show_slug" value="naruto-shippuden" required></label>
           <label>Service name <input name="service_name" value="Netflix"></label>
-          <label>File <input type="file" name="file" accept=".xlsx,.csv,text/csv" required></label>
+          <label>File <input type="file" name="file" accept=".csv,text/csv" required></label>
           <button type="submit">Preview import</button>
         </form>
       </section>
@@ -34,8 +34,8 @@ export function importPreviewPage(jobId: number, preview: ImportPreview, jobs: I
       <h1>Import preview</h1>
       <section class="panel">
         <h2>${escapeHtml(preview.show.title)}</h2>
-        <p>${preview.counts.total} episodes · ${preview.counts.seasons} seasons · No/Mixed/Yes = ${preview.counts.fillerBuckets.No}/${preview.counts.fillerBuckets.Mixed}/${preview.counts.fillerBuckets.Yes}</p>
-        <p>Format: ${preview.format.toUpperCase()} · slug: ${escapeHtml(preview.show.slug)}</p>
+        <p>${preview.counts.total} episodes - ${preview.counts.seasons} seasons - No/Mixed/Yes = ${preview.counts.fillerBuckets.No}/${preview.counts.fillerBuckets.Mixed}/${preview.counts.fillerBuckets.Yes}</p>
+        <p>Format: ${preview.format.toUpperCase()} - slug: ${escapeHtml(preview.show.slug)}</p>
         ${issueList("Errors", errors)}
         ${issueList("Warnings", warnings)}
         ${
@@ -115,4 +115,3 @@ function adminLayout(title: string, body: string): string {
 <body>${body}</body>
 </html>`;
 }
-

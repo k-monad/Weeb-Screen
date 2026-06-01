@@ -2,7 +2,7 @@ export const FILLER_BUCKETS = ["No", "Mixed", "Yes"] as const;
 
 export type FillerBucket = (typeof FILLER_BUCKETS)[number];
 
-export type ImportFormat = "xlsx" | "csv";
+export type ImportFormat = "csv";
 
 export type ImportIssueLevel = "error" | "warning";
 
@@ -74,4 +74,3 @@ export const NARUTO_ORACLE: NarutoOracle = {
     Yes: 203,
   },
 };
-

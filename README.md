@@ -17,3 +17,4 @@ pnpm db:init
 
 `pnpm db:init` creates `data/weebscreen.sqlite` unless `WEEBSCREEN_DB_PATH` is set or a path is passed as the first argument.
 
+Admin imports accept CSV files only. Export spreadsheet mappings to CSV before uploading.

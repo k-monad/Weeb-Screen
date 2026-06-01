@@ -1,12 +1,16 @@
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
-
 import { getNextEpisode, setEpisodeWatched } from "../../src/db/repositories.js";
 import { buildServer } from "../../src/server.js";
 import { createTempDatabase } from "../helpers/db.js";
 
 const token = "test-admin-token";
-const workbook = readFileSync(join(process.cwd(), "naruto_shippuden_netflix_episode_mapping.xlsx"));
+const csvImport = Buffer.from(
+  `real_episode_number,service_season_number,service_episode_number,episode_title,filler_bucket,canon_filler_type,original_airdate,episode_data_source_url,season_boundary_source_url
+1,1,1,Start,No,Manga Canon,2007-02-15,https://example.com/episodes,https://example.com/seasons
+2,1,2,Filler Beach,Yes,Filler,2007-02-22,https://example.com/episodes,https://example.com/seasons
+3,1,3,Bridge,Mixed,Mixed Canon/Filler,2007-03-01,https://example.com/episodes,https://example.com/seasons
+`,
+  "utf8",
+);
 
 describe("admin import flow", () => {
   it("rejects missing or wrong admin tokens", async () => {
@@ -23,7 +27,7 @@ describe("admin import flow", () => {
     }
   });
 
-  it("previews and commits the Naruto workbook through token-gated admin routes", async () => {
+  it("previews and commits a CSV import through token-gated admin routes", async () => {
     const { db, cleanup } = createTempDatabase();
     const app = await buildServer(db, { adminToken: token });
     try {
@@ -38,12 +42,12 @@ describe("admin import flow", () => {
           show_title: "Naruto Shippuden",
           show_slug: "naruto-shippuden",
           service_name: "Netflix",
-        }, "naruto_shippuden_netflix_episode_mapping.xlsx", workbook),
+        }, "naruto_shippuden_netflix_episode_mapping.csv", csvImport),
       });
 
       expect(preview.statusCode).toBe(200);
-      expect(preview.body).toContain("500 episodes");
-      expect(preview.body).toContain("No/Mixed/Yes = 233/64/203");
+      expect(preview.body).toContain("3 episodes");
+      expect(preview.body).toContain("No/Mixed/Yes = 1/1/1");
       const jobId = Number.parseInt(preview.body.match(/name="job_id" value="(\d+)"/)?.[1] ?? "", 10);
       expect(jobId).toBeGreaterThan(0);
 
@@ -62,7 +66,7 @@ describe("admin import flow", () => {
       expect(getNextEpisode(db, "naruto-shippuden", false)?.next?.realEpisodeNumber).toBe(1);
       expect(db.prepare("SELECT status, rows_imported, rows_updated, rows_skipped FROM import_jobs WHERE id = ?").get(jobId)).toEqual({
         status: "committed",
-        rows_imported: 500,
+        rows_imported: 3,
         rows_updated: 0,
         rows_skipped: 0,
       });
@@ -76,17 +80,17 @@ describe("admin import flow", () => {
     const { db, cleanup } = createTempDatabase();
     const app = await buildServer(db, { adminToken: token });
     try {
-      const firstJob = await previewWorkbook(app);
+      const firstJob = await previewCsv(app);
       await commitJob(app, firstJob);
       setEpisodeWatched(db, "naruto-shippuden", 1, true);
 
-      const secondJob = await previewWorkbook(app);
+      const secondJob = await previewCsv(app);
       await commitJob(app, secondJob);
 
       expect(getNextEpisode(db, "naruto-shippuden", false)?.next?.realEpisodeNumber).toBe(2);
       expect(db.prepare("SELECT rows_imported, rows_updated, rows_skipped FROM import_jobs WHERE id = ?").get(secondJob)).toEqual({
         rows_imported: 0,
-        rows_updated: 500,
+        rows_updated: 3,
         rows_skipped: 0,
       });
     } finally {
@@ -101,7 +105,7 @@ describe("admin import flow", () => {
 
     let jobId = 0;
     try {
-      jobId = await previewWorkbook(appA);
+      jobId = await previewCsv(appA);
     } finally {
       await appA.close();
     }
@@ -112,7 +116,7 @@ describe("admin import flow", () => {
 
       expect(db.prepare("SELECT status, rows_imported FROM import_jobs WHERE id = ?").get(jobId)).toEqual({
         status: "committed",
-        rows_imported: 500,
+        rows_imported: 3,
       });
     } finally {
       await appB.close();
@@ -175,9 +179,35 @@ describe("admin import flow", () => {
       cleanup();
     }
   });
+
+  it("rejects spreadsheet uploads in production-safe CSV-only mode", async () => {
+    const { db, cleanup } = createTempDatabase();
+    const app = await buildServer(db, { adminToken: token });
+    try {
+      const response = await app.inject({
+        method: "POST",
+        url: "/admin/import/preview",
+        headers: {
+          "x-weebscreen-admin-token": token,
+          ...multipartHeaders("xlsx-boundary"),
+        },
+        payload: multipartBody("xlsx-boundary", {
+          show_title: "Naruto Shippuden",
+          show_slug: "naruto-shippuden",
+          service_name: "Netflix",
+        }, "naruto_shippuden_netflix_episode_mapping.xlsx", Buffer.from("not really xlsx", "utf8")),
+      });
+
+      expect(response.statusCode).toBe(400);
+      expect(response.body).toContain("Spreadsheet imports are disabled for production. Export the mapping as CSV.");
+    } finally {
+      await app.close();
+      cleanup();
+    }
+  });
 });
 
-async function previewWorkbook(app: Awaited<ReturnType<typeof buildServer>>): Promise<number> {
+async function previewCsv(app: Awaited<ReturnType<typeof buildServer>>): Promise<number> {
   const response = await app.inject({
     method: "POST",
     url: "/admin/import/preview",
@@ -189,7 +219,7 @@ async function previewWorkbook(app: Awaited<ReturnType<typeof buildServer>>): Pr
       show_title: "Naruto Shippuden",
       show_slug: "naruto-shippuden",
       service_name: "Netflix",
-    }, "naruto_shippuden_netflix_episode_mapping.xlsx", workbook),
+    }, "naruto_shippuden_netflix_episode_mapping.csv", csvImport),
   });
 
   expect(response.statusCode).toBe(200);
@@ -233,7 +263,7 @@ function multipartBody(
 
   chunks.push(
     Buffer.from(
-      `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${filename}"\r\nContent-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet\r\n\r\n`,
+      `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${filename}"\r\nContent-Type: text/csv\r\n\r\n`,
     ),
   );
   chunks.push(file);

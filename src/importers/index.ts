@@ -1,5 +1,4 @@
 export { parseCsvImport } from "./csv.js";
-export { parseXlsxImport } from "./xlsx.js";
 export type {
   EpisodeImportRow,
   FillerBucket,
@@ -9,4 +8,3 @@ export type {
   ParsedShow,
   ShowMetadataInput,
 } from "./types.js";
-

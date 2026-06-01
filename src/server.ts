@@ -23,7 +23,7 @@ import {
   upsertShowImport,
 } from "./db/repositories.js";
 import type { WeebScreenDatabase } from "./db/database.js";
-import { parseCsvImport, parseXlsxImport, type ImportPreview, type ShowMetadataInput } from "./importers/index.js";
+import { parseCsvImport, type ImportPreview, type ShowMetadataInput } from "./importers/index.js";
 import { adminPage, importLogPage, importPreviewPage } from "./views/admin.js";
 import { libraryPage, notFoundPage, redirectPage, showPage } from "./views/html.js";
 
@@ -408,15 +408,16 @@ async function readImportUpload(request: FastifyRequest): Promise<ImportUpload> 
   }
 
   if (!file || filename.length === 0) {
-    return { ok: false, message: "Choose an XLSX or CSV file to import." };
+    return { ok: false, message: "Choose a CSV file to import." };
   }
 
   if (!fields.show_title || !fields.show_slug) {
     return { ok: false, message: "Show title and show slug are required." };
   }
 
-  if (filename.toLowerCase().endsWith(".xlsm")) {
-    return { ok: false, message: "Macro-enabled .xlsm files are not accepted." };
+  const lowerFilename = filename.toLowerCase();
+  if (lowerFilename.endsWith(".xlsx") || lowerFilename.endsWith(".xlsm")) {
+    return { ok: false, message: "Spreadsheet imports are disabled for production. Export the mapping as CSV." };
   }
 
   return {
@@ -433,14 +434,11 @@ function parseUploadedImport(
   metadata: ShowMetadataInput,
 ): ImportPreview {
   const lower = filename.toLowerCase();
-  if (lower.endsWith(".xlsx")) {
-    return parseXlsxImport(file, metadata);
-  }
   if (lower.endsWith(".csv")) {
     return parseCsvImport(file.toString("utf8"), metadata);
   }
 
-  return emptyFailedPreview("Unsupported import file type. Use .xlsx or .csv.");
+  return emptyFailedPreview("Unsupported import file type. Use .csv.");
 }
 
 function emptyFailedPreview(message: string): ImportPreview {

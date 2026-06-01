@@ -66,7 +66,7 @@ CREATE TABLE IF NOT EXISTS import_jobs (
   id             INTEGER PRIMARY KEY,
   show_id        INTEGER REFERENCES shows(id) ON DELETE SET NULL,
   filename       TEXT,
-  format         TEXT CHECK (format IN ('xlsx','csv')),
+  format         TEXT CHECK (format IN ('csv')),
   show_slug      TEXT,
   status         TEXT NOT NULL
                    CHECK (status IN ('preview','committed','failed')),

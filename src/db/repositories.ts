@@ -23,7 +23,7 @@ export type ImportJob = {
   id: number;
   showId: number | null;
   filename: string | null;
-  format: "xlsx" | "csv" | null;
+  format: "csv" | null;
   showSlug: string | null;
   status: ImportJobStatus;
   rowsTotal: number | null;
@@ -85,7 +85,7 @@ type ImportJobRow = {
   id: number;
   show_id: number | null;
   filename: string | null;
-  format: "xlsx" | "csv" | null;
+  format: "csv" | null;
   show_slug: string | null;
   status: ImportJobStatus;
   rows_total: number | null;
@@ -139,7 +139,7 @@ export function getShowDetail(db: WeebScreenDatabase, slug: string, options: Sho
   const skipFiller = getShowBooleanSetting(db, "skip_filler", show.slug, "skip_filler_default");
   const seasonDetails = getShowBooleanSetting(db, "season_details", show.slug, "season_details_default");
   const where: string[] = ["e.show_id = ?"];
-  const params: unknown[] = [show.id, PROFILE_ID];
+  const params: unknown[] = [PROFILE_ID, show.id];
 
   if (options.bucket && options.bucket !== "All") {
     where.push("e.filler_bucket = ?");
