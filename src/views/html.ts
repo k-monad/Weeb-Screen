@@ -94,6 +94,8 @@ function layout(title: string, body: string): string {
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f7f7f4" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#121514" media="(prefers-color-scheme: dark)">
   <title>${escapeHtml(title)}</title>
   <style>${css()}</style>
 </head>
@@ -292,6 +294,30 @@ function escapeAttribute(value: string): string {
 }
 
 function css(): string {
+  const darkTokens = `
+  color-scheme: dark;
+  --bg:#121514;
+  --surface:#1b1f1d;
+  --surface-sunk:#262b29;
+  --watched-tint:#161a18;
+  --text:#e9ece8;
+  --text-muted:#9ba49c;
+  --border:#2b302d;
+  --border-strong:#3a403c;
+  --primary:#4cae88;
+  --primary-hover:#5cbf98;
+  --primary-soft:#1d3b30;
+  --primary-text:#08160f;
+  --focus:#5aa9ff;
+  --badge-canon-bg:#163328;
+  --badge-canon-fg:#7fd9b4;
+  --badge-mixed-bg:#3a2e12;
+  --badge-mixed-fg:#f0c971;
+  --badge-filler-bg:#3a1d1d;
+  --badge-filler-fg:#f0a3a3;
+  --track:#2b302d;
+  --switch-track-off:#3a403c;`;
+
   return `
 :root {
   color-scheme: light;
@@ -318,6 +344,7 @@ function css(): string {
   --badge-filler-bg:#f8dddd;
   --badge-filler-fg:#8a2424;
   --track:#e4e8e2;
+  --switch-track-off:#c7cfc6;
   --space-1:4px;
   --space-2:8px;
   --space-3:12px;
@@ -336,6 +363,13 @@ function css(): string {
   --text-h1:1.6rem;
   --control-min:44px;
 }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {${darkTokens}
+  }
+}
+:root[data-theme="dark"] {${darkTokens}
+}
+:root[data-theme="light"] { color-scheme: light; }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--text); font-family: var(--font-sans); }
 a { color: inherit; }
@@ -479,7 +513,7 @@ button, select, input { font: inherit; }
   font: inherit;
   cursor: pointer;
 }
-.switch__track { width: 34px; height: 20px; border-radius: 999px; background: #c7cfc6; position: relative; flex: none; }
+.switch__track { width: 34px; height: 20px; border-radius: 999px; background: var(--switch-track-off); position: relative; flex: none; }
 .switch__thumb {
   position: absolute;
   top: 2px;
@@ -533,7 +567,7 @@ button, select, input { font: inherit; }
   padding: 1px 8px;
   border-radius: var(--radius-pill);
   background: var(--primary);
-  color: #fff;
+  color: var(--primary-text);
   font-size: var(--text-xs);
   font-weight: 700;
   vertical-align: middle;

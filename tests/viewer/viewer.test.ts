@@ -30,6 +30,30 @@ describe("viewer UI and progress semantics", () => {
     }
   });
 
+  it("emits CSS-only dark mode tokens and theme-color metadata", async () => {
+    const { db, cleanup } = createTempDatabase();
+    const app = await buildServer(db);
+    try {
+      const response = await app.inject({ method: "GET", url: "/" });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.body).toContain('<meta name="theme-color" content="#f7f7f4" media="(prefers-color-scheme: light)">');
+      expect(response.body).toContain('<meta name="theme-color" content="#121514" media="(prefers-color-scheme: dark)">');
+      expect(response.body).toContain("@media (prefers-color-scheme: dark)");
+      expect(response.body).toContain(':root:not([data-theme="light"])');
+      expect(response.body).toContain(':root[data-theme="dark"]');
+      expect(response.body).toContain("color-scheme: dark");
+      expect(response.body).toContain("--bg:#121514");
+      expect(response.body).toContain("--primary-text:#08160f");
+      expect(response.body).toContain("--switch-track-off:#3a403c");
+      expect(response.body).toContain("background: var(--switch-track-off)");
+      expect(response.body).toMatch(/\.ep\.is-next \.up-next-tag \{[\s\S]*?color: var\(--primary-text\);/);
+    } finally {
+      await app.close();
+      cleanup();
+    }
+  });
+
   it("defaults to flat filler-first display and persists opt-in season details without reordering", async () => {
     const { db, cleanup } = createTempDatabase();
     const app = await buildServer(db);
